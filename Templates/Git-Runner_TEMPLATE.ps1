@@ -7,7 +7,7 @@
 .DESCRIPTION
     This template...
         - can be used to pull the latest commit from your target repo, and run a powershell script within, even passing parameters to that powershell script.
-        - was intended to be used as the primary component in this project: https://github.com/Adrian-Mandel/PowerDeploy and interacts with the scripts within
+        - was intended to be used as the primary component in this project: https://github.com/Santa-Cruz-COE/PowerDeploy and interacts with the scripts within
         - can be ran as-is, or set up to be ran independently by removing the parameters.
         - will not be updated much so safe to keep and run. If used as a part of the github repo above, it can update itself.
 
@@ -30,7 +30,7 @@
 .PARAMETER RepoUrl
     Link to the target repo
     EXAMPLE
-        https://github.com/Adrian-Mandel/PowerDeploy.git
+        https://github.com/Santa-Cruz-COE/PowerDeploy.git
 
 .PARAMETER UpdateLocalRepoOnly
     If $true, forces script to exit early right after it finishes pulling the latest commit.
@@ -69,7 +69,7 @@
     How do you use this parameter? The Generate_Custom-Script_FromTemplate.ps1 will do it for you automatically! See that script for further instuctions.
 
 .EXAMPLE
-    .\Git-Runner_TEMPLATE.ps1 -RepoNickName "Win-PowerDeploy" -RepoURL "https://github.com/Adrian-Mandel/PowerDeploy.git" -ScriptPath "Uninstallers\General_Uninstaller.ps1" -WorkingDirectory "C:\ProgramData\PowerDeploy" -ScriptParams '-AppName "7-zip" -UninstallType "All" -WorkingDirectory "C:\ProgramData\PowerDeploy"'
+    .\Git-Runner_TEMPLATE.ps1 -RepoNickName "Win-PowerDeploy" -RepoURL "https://github.com/Santa-Cruz-COE/PowerDeploy.git" -ScriptPath "Uninstallers\General_Uninstaller.ps1" -WorkingDirectory "C:\ProgramData\PowerDeploy" -ScriptParams '-AppName "7-zip" -UninstallType "All" -WorkingDirectory "C:\ProgramData\PowerDeploy"'
     
     Template: .\Git-Runner_TEMPLATE.ps1 -RepoNickName "" -RepoURL "" -ScriptPath "" -WorkingDirectory "" -ScriptParams ""
 
@@ -79,7 +79,7 @@
         - Maybe add a timeout feature for the script?
 
     SOURCE:
-        https://github.com/Adrian-Mandel/PowerDeploy
+        https://github.com/Santa-Cruz-COE/PowerDeploy
 
 
                 
@@ -93,6 +93,10 @@ param(
 
     [Parameter(Mandatory=$true)]
     [string]$RepoUrl,
+
+    [string]$RepoToken=$null, # Optional token for private repos. Not fully tested yet.
+
+    [string]$RepoBranch="main", # Optional branch name. Default: main
     
     [boolean]$UpdateLocalRepoOnly, # If true, script exits early after just updating
 
@@ -179,6 +183,13 @@ $SecurityManagerScriptPath = "$WorkingDirectory\$RepoNickName\Other_Tools\Securi
 # Registry change script path
 $RegistryChangeScriptPath = "$WorkingDirectory\$RepoNickName\Configurators\Configure-Registry.ps1"
 
+
+# Insert token into RepoUrl if provided. NOT TESTED YET!
+# git clone https://oauth2:oauth-key-goes-here@github.com/username/repo.git
+if ($RepoToken -ne "") {
+    # Insert token into URL for authentication
+    $RepoUrl = $RepoUrl -replace 'https://', "https://oauth2:$RepoToken@"
+}
 ###############
 ## Functions ##
 ###############
@@ -452,6 +463,8 @@ Write-Log "+++++ Git Runner +++++"
 
 Write-Log "RepoNickName: $RepoNickName"
 Write-Log "RepoUrl: $RepoUrl"
+Write-Log "RepoToken: $RepoToken"
+Write-Log "RepoBranch: $RepoBranch"
 Write-Log "ScriptPath: $ScriptPath"
 Write-Log "WorkingDirectory: $WorkingDirectory"
 Write-Log "ScriptParams: $ScriptParams"
@@ -487,7 +500,7 @@ if(Test-Path $LocalRepoPath){
         $gitOutput = git init -b main 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
-        $gitOutput = git remote add origin $RepoURL 2>&1
+        $gitOutput = git remote add origin $RepoUrl 2>&1 
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
         $gitOutput = git fetch origin 2>&1
@@ -552,6 +565,58 @@ if ($DoClone -eq $true){
     #Exit 1
 }
 ##
+
+# Switch branch if needed
+if ($RepoBranch -ne "main") {
+    Write-Log "Switching to branch: $RepoBranch"
+    Push-Location $LocalRepoPath
+    try {
+
+        # $gitOutput = git checkout $RepoBranch 2>&1
+
+        Write-Log "RUNNING GIT: git switch $RepoBranch"
+        $gitOutput = git switch $RepoBranch 2>&1
+        foreach ($line in $gitOutput) {
+            Write-Log "GIT: $line"
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "++++++++++++++++++++++"
+            Write-Log "SCRIPT: $ThisFileName | END | Failed at: ""git switch $RepoBranch"" $RepoBranch." "ERROR"
+            Exit 1            
+        }
+
+        Write-Log "RUNNING GIT: git reset --hard HEAD"
+        $gitOutput = git reset --hard HEAD 2>&1
+        foreach ($line in $gitOutput) {
+            Write-Log "GIT: $line"
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "++++++++++++++++++++++"
+            Write-Log "SCRIPT: $ThisFileName | END | Failed at: ""git reset --hard HEAD"" $RepoBranch." "ERROR"
+            Exit 1            
+        }
+
+        Write-Log "RUNNING GIT: git pull"
+        $gitOutput = git pull 2>&1
+        foreach ($line in $gitOutput) {
+            Write-Log "GIT: $line"
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "++++++++++++++++++++++"
+            Write-Log "SCRIPT: $ThisFileName | END | Failed at: ""git pull"" $RepoBranch." "ERROR"
+            Exit 1            
+        } else {
+            Write-Log "Successfully switched to branch: $RepoBranch" "SUCCESS"
+        }
+
+    }
+    finally {
+        Pop-Location
+    }
+}
 
 # Create the temp directory if it doesn't exist
 if (!(Test-Path "$WorkingDirectory\TEMP")){

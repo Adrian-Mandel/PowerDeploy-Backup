@@ -38,6 +38,9 @@
             "MSI_name":"7z2201-x64.msi"
         },
 
+    TODO: Add ability to switch current branch of this script?
+
+    TODO: Redo the update local git repo functionality
 
 
 #>
@@ -83,6 +86,12 @@ $AppDetect_ScriptPath = "$RepoRoot\Templates\Detection-Script-Application_TEMPLA
 
 $PublicJSONpath = "$RepoRoot\Templates\ApplicationData_TEMPLATE.json"
 
+$MyCompanyRepoURL = ""
+$MyCompanyRepoURLTOKEN = ""
+$OfficialPublicRepoURL = "https://github.com/Santa-Cruz-COE/PowerDeploy"
+$Global:TargetRepoNickName = ""
+$Global:TargetWorkingDirectory = ""
+$Global:DeployMode = "" 
 
 $ExamplePrinterJSON = @"
 {
@@ -270,86 +279,140 @@ function Write-Log {
     Add-Content -Path $LogPath -Value $logEntry
 }
 
-function Make-RemediationScript-Registry-Detect{
+Function Set-URL {
 
-    Write-Log "We will now create a detection script that looks for specific registry values. This detection script is to be used with a remediation script in InTune."
+    Write-Log "Before we begin, please confirm the deployment mode."
+    Write-Log ""
+    #Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    #Write-Log ""
+    Write-Log "Deployment Mode Options:"
+    # Write-Log "1 - TEST MODE: The resulting InTune application will utilize the official public repository for PowerDeploy. This is good for testing the latest code before merging it into your own code. Target URL: $OfficialPublicRepoURL"
+    # Write-Log "2 - PRODUCTION MODE: The resulting InTune application will utilize your organization's custom repository for PowerDeploy. Target URL: $CustomRepoURL"
+    Write-Log ""
+    Write-Log "1 - [PUBLIC-DEVELOPMENT]:" 
+    Write-Log "     - For TESTING purposes."
+    Write-Log "     - Uses official public PowerDeploy repo (DEV branch)" 
+    Write-Log ""
 
-    Write-Log "Would you like to use another pre-existing detection script to build off of?"
+    Write-Log "2 - [PUBLIC-TESTING]:"
+    Write-Log "     - For TESTING purposes."
+    Write-Log "     - Uses official public PowerDeploy repo (MAIN branch)"
+    Write-Log ""
 
-    $Answer = Read-Host "y/n"
-    Write-Log "User answer: $Answer"
+    Write-Log "3 - [PRIVATE-DEVELOPMENT]:"
+    Write-Log "     - For TESTING purposes."
+    Write-Log "     - Uses your organization's custom PowerDeploy repository (DEV branch)"
+    Write-Log ""
 
-        if ($answer -eq "y"){
+    Write-Log "4 - [PRODUCTION]:"
+    Write-Log "     - For PRODUCTION deployments."
+    Write-Log "     - Uses your organization's custom PowerDeploy repository (MAIN branch)"
+    Write-Log ""
 
-            Write-Log "Please enter the full path of the script you wish to use as a base"
+    $modeSelected = $false
+    $modeSelected1 = $false
 
-            $PathForPreExistingScript = Read-Host "Enter full path:"
-            Write-Log "User answer: $PathForPreExistingScript"
+    while (-not $modeSelected) {
+        $userInput = Read-Host "Please enter a number (1-4) to select the deployment mode"
+        Write-Log ""
 
-            Write-Log "Checking if script exists..."
-
-            if(Test-Path $PathForPreExistingScript){
+        
+         switch ($userInput) {
+            '1' {
+                $Global:DeployMode = "PUBLIC-DEVELOPMENT"
+                $RepoUrl = $OfficialPublicRepoURL
+                $Global:RepoBranch = "dev"
                 
-                Write-Log "Script exists!"
-
-                # Consume the script
-
-                Write-Log "Here are the values found within the script you provided:"
-
-                Write-Log "Keep? Delete? Modify?"
-
-                Write-Log "Would you like add additional entries?"
-
-            
-            } else {
-                
-                Write-Log "Script does not exist!"
-            
+                $modeSelected1 = $true
             }
+            '2' {
+                $Global:DeployMode = "PUBLIC-TESTING"
+                $RepoUrl = $OfficialPublicRepoURL
+                $Global:RepoBranch = "main"
+                $modeSelected1 = $true
+            }
+            '3' {
+                $Global:DeployMode = "PRIVATE-DEVELOPMENT"
 
+                    if ($CustomRepoToken -ne "" -and $CustomRepoToken -ne $null) {
+                        # Insert token into URL for authentication
+                        $RepoUrl = $CustomRepoURL -replace 'https://', "https://oauth2:$CustomRepoToken@"
+                    } else {
+                        $RepoUrl = $CustomRepoURL
+                    }
+                $Global:RepoBranch = "dev"
+                $modeSelected1 = $true
+            }
+            '4' {
+                $Global:DeployMode = "PRODUCTION"
 
+                    if ($CustomRepoToken -ne "" -and $CustomRepoToken -ne $null) {
+                        # Insert token into URL for authentication
+                        $RepoUrl = $CustomRepoURL -replace 'https://', "https://oauth2:$CustomRepoToken@"
+                    } else {
+                        $RepoUrl = $CustomRepoURL
+                    }
+                $Global:RepoBranch = "main"
+                $modeSelected1 = $true
+            }
+            default {
+                Write-Log "Invalid input. Please enter a number between '1' and '4'."
 
+            }
 
         }
 
+        if ($modeSelected1) {
+
+            $Global:ProgamDataFolderName = "PowerDeploy--$Global:DeployMode"
+            #$Global:TargetRepoNickName = "PowerDeploy-Repo--$Global:DeployMode"
+            $Global:TargetRepoNickName = "PowerDeploy-Repo"
+            $Global:TargetWorkingDirectory = "C:\ProgramData\$Global:ProgamDataFolderName"
+
+            Write-Log "You have selected the following:"
+            Write-Log ""
+            Write-Log " Target Deployment mode:                 $Global:DeployMode"
+            Write-Log " Target Repo URL set to:                 $RepoUrl"
+            Write-Log " Target Repo branch:                     $Global:RepoBranch"
+            Write-Log " Target Local Repo Nickname set to:      $Global:TargetRepoNickName"
+            Write-Log " Target Local Working Directory set to:  $Global:TargetWorkingDirectory"
+            Write-Log ""
+            Write-Log "Is this acceptable? (y/n)" "WARNING"
+            $confirmation = Read-Host "(y/n)"
+            if ($confirmation -eq "y") {
+                $modeSelected = $true
+            } else {
+                Write-Log "Let's try again to select the deployment mode."
+            }
+
+        }
+
+        Write-Log ""
 
 
 
-    Write-Log "Please enter the values for the first registry entry the script will look for"
 
-    Write-Log "Will you be looking for another registry entry?"
+    }
 
+    Write-Log "Deployment mode set to $Global:DeployMode" "WARNING"
+    Write-Log ""
+    Write-Log "The end product you create will use the above repository for its scripts."
+    Write-Log ""
 
-    Write-Log "This is what the current arg line looks like, is this acceptable?"
+    #Pause
 
-    Write-Log "Creating new drag and drop script..."
+    Return $RepoUrl
 
-    Write-Log "We will now create the remediation script..."
-
-    Write-Log "Testing..."
-
-    Write-Log "The scripts have been created and tested locally. Here are you instructions for putting them into InTune..."
-
-
-}
-
-function Make-RemediationScript-Registry-Remediate{}
-
-function Make-InTuneWin32app-WinGet{
-
-    # Confirm existance of WinGet item
-
-    # Create Install Command
-
-    # Create intunewin file
-
-    # Create detect script
-
-    # Run tests
-
+    
 }
 
 function Setup--Azure-Printer{
+
+    # Determine if this is a test or production deployment
+    $RepoUrl = Set-URL
+
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    Write-Log ""
 
     # vars
 
@@ -358,9 +421,9 @@ function Setup--Azure-Printer{
     $PrinterData_JSON_ContainerName = $parts[0]      
     $PrinterData_JSON_BlobName = $parts[1]
 
-
-
     # main 
+
+
 
     Write-Log "To begin, we need to prepare the resources required to set up a printer deployment via Intune."
     Write-Log ""
@@ -524,7 +587,7 @@ function Setup--Azure-Printer{
             PrinterName = $PrinterName
         }
 
-        $ReturnHash2 = & $GenerateInstallCommand_ScriptPath -DesiredFunction "InstallPrinterByIP" -FunctionParams $FunctionParams
+        $ReturnHash2 = & $GenerateInstallCommand_ScriptPath -DesiredFunction "InstallPrinterByIP" -RepoURL $RepoURL -RepoNickName $Global:TargetRepoNickName -RepoBranch $Global:RepoBranch -TargetWorkingDirectory $Global:TargetWorkingDirectory-FunctionParams $FunctionParams
 
         # Check the returned hashtable
         if(($ReturnHash2 -eq $null) -or ($ReturnHash2.Count -eq 0)){
@@ -566,7 +629,7 @@ function Setup--Azure-Printer{
             PrinterName = $PrinterName
         }
 
-        $ReturnHash3 = & $GenerateInstallCommand_ScriptPath -DesiredFunction "UninstallPrinterByName" -FunctionParams $FunctionParams
+        $ReturnHash3 = & $GenerateInstallCommand_ScriptPath -DesiredFunction "UninstallPrinterByName" -RepoURL $RepoURL -RepoNickName $Global:TargetRepoNickName -RepoBranch $Global:RepoBranch -TargetWorkingDirectory $Global:TargetWorkingDirectory -FunctionParams $FunctionParams
 
         # Check the returned hashtable
         if(($ReturnHash3 -eq $null) -or ($ReturnHash3.Count -eq 0)){
@@ -601,6 +664,14 @@ function Setup--Azure-Printer{
 
 
         }
+
+    if ($Global:DeployMode -eq "Production"){
+
+            $PotentialPrinterInTuneName = "PRINTER: $PrinterName"
+
+    } else {
+            $PotentialPrinterInTuneName = "PRINTER: $PrinterName [$Global:DeployMode]"
+    }
         
     Write-Log ""
     Write-Log "Install command, uninstall command, and detection script created!"
@@ -619,7 +690,12 @@ function Setup--Azure-Printer{
     Write-Log " 2 - Upload the .intunewin file located here: $PrinterIntuneWinPath"
     Write-Log ""    
     Write-Log " 3 - APP INFORMATION:"
-    write-log "     - Name: follow your org naming conventions, E.g., 'PRINTER: [Printer Name]'"
+    write-log "     - Name: follow your org naming conventions."
+    
+    Write-Log "         - What I recommend: ""$PotentialPrinterInTuneName"""
+
+
+
     Write-Log "     - Description: Include printer name, IP, driver version, location, etc following a common naming convention for you organization."
     Write-Log "     - Publisher: Your organization name"
     Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
@@ -660,6 +736,13 @@ function Setup--Azure-Printer{
 }
 
 Function Setup--Azure-WindowsApp{
+
+    # Determine if this is a test or production deployment
+    $RepoUrl = Set-URL
+
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    Write-Log ""
+
 
 
     # vars
@@ -1110,6 +1193,10 @@ Function Setup--Azure-WindowsApp{
     $installResult = @{}
     $installResult = & $GenerateInstallCommand_ScriptPath `
         -DesiredFunction "InstallAppWithJSON" `
+        -RepoURL $RepoURL `
+        -RepoNickName $Global:TargetRepoNickName `
+        -RepoBranch $Global:RepoBranch `
+        -TargetWorkingDirectory $Global:TargetWorkingDirectory `
         -FunctionParams $FunctionParams
 
     # Sanity check
@@ -1176,6 +1263,10 @@ Function Setup--Azure-WindowsApp{
     $ReturnHash3 = @{}
     $ReturnHash3 = & $GenerateInstallCommand_ScriptPath `
         -DesiredFunction "UninstallApp" `
+        -RepoURL $RepoURL `
+        -RepoNickName $Global:TargetRepoNickName `
+        -RepoBranch $Global:RepoBranch `
+        -TargetWorkingDirectory $Global:TargetWorkingDirectory `
         -FunctionParams $FunctionParams
 
     # Check the returned hashtable
@@ -1212,6 +1303,14 @@ Function Setup--Azure-WindowsApp{
 
     Pause
 
+    if ($Global:DeployMode -eq "Production"){
+
+            $PotentialAppInTuneName = "APP: $ApplicationName"
+
+    } else {
+            $PotentialAppInTuneName = "APP: $ApplicationName [$Global:DeployMode]"
+    }
+
     Write-Log ""
     Write-Log "InTune Win32 Application creation instructions:" "WARNING"
     Write-Log ""           
@@ -1223,7 +1322,9 @@ Function Setup--Azure-WindowsApp{
     Write-Log " 2 - Upload the .intunewin file located here: $ApplicationIntuneWinPath"
     Write-Log ""    
     Write-Log " 3 - APP INFORMATION:"
-    write-log "     - Name: follow your org naming conventions, E.g., 'APP: [App Name]'"
+    write-log "     - Name: follow your org naming conventions"
+    Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
+
     Write-Log "     - Description: Up to your descretion. Copying the description from Windows Store, App website, etc could be beneficial.,"
     Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
     Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version.."
@@ -2156,7 +2257,9 @@ Function Uninstall--Local-Application{
     Write-Log "Enter the # of your desired uninstall function:" "WARNING"
     # Write-Log "NOTE: If you are not sure where to begin, start with JSON--search-and-uninstall." "WARNING"
     # Write-Log "NOTE: For All Adobe CC apps, please use Adobe--search-and-uninstall." "WARNING"
-    Write-Log "NOTE: For the largest selection of apps, try AppPackage--search-and-uninstall." "WARNING"4
+    Write-Log "NOTE: Each of these may offer exclusive applications not found in the others." "WARNING"
+    Write-Log "NOTE: For most general use cases, try Registry--search-and-uninstall." "WARNING"
+    Write-Log "NOTE: For the largest selection of apps, try AppPackage--search-and-uninstall." "WARNING"
     [int]$SelectedFunctionNumber = Read-Host "Please enter a #"
 
 
@@ -2169,6 +2272,7 @@ Function Uninstall--Local-Application{
     $SelectedFunction2 = $AvailableFunctions[$SelectedFunctionNumber]
     Write-Log ""
     Write-Log "You have selected: $SelectedFunction2"
+    Write-Log ""
     Write-Log "================================="
     Write-Log ""
     & $SelectedFunction2
@@ -2708,22 +2812,55 @@ Function ParseJSON {
 
 Function Setup--Azure-PowerDeploy_Registry_Remediations_For_Organization{
 
+    # Determine if this is a test or production deployment
+    $RepoUrl = Set-URL
+
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    Write-Log ""
+
 
     # Collect input data
 
+
+    Write-Log "Currently this function only supports updating SAS keys for Azure Blob, custom Git URL, no custom variables. Will add option for other values in the future." "WARNING"
+
     Write-Log ""
 
-    Write-Log "Currently this function only supports updating SAS keys for Azure Blob, no custom variables" "WARNING"
+    Write-Log "Your current custom organization Git Repo URL is: $CustomRepoURL"
+    Write-Log "If this is acceptable, press Enter to continue or enter the new URL now:" "WARNING"
 
+    $TempRepoURL = Read-Host "New URL, or leave blank to keep existing"
+    if ($TempRepoURL -eq "") {
+        $RepoURLtoUse = $CustomRepoURL
+        Write-Log "Using existing Repo URL: $RepoURLtoUse"
+    } else {
+        Write-Log "Using new Repo URL: $TempRepoURL"
+        $RepoURLtoUse = $TempRepoURL
+    }
+
+    Write-Log "Your current custom organization Git Repo Token is: $CustomRepoToken"
+    Write-Log "If this is acceptable, press Enter to continue or enter the new token now:" "WARNING"
+
+    $TempRepoToken = Read-Host "New Token, or leave blank to keep existing"
+    if ($TempRepoToken -eq "") {
+        $CustomRepoTokenToUse = $CustomRepoToken
+        Write-Log "Using existing Repo Token: $CustomRepoTokenToUse"
+    } else {
+        Write-Log "Using new Repo Token: $TempRepoToken"
+        $CustomRepoTokenToUse = $TempRepoToken
+    }
+
+
+
+    
     Write-Log ""
-
-    Write-Log "Enter your custom PRINTER share SAS key:"
+    Write-Log "Enter your custom PRINTER share SAS key:" "WARNING"
 
     $PrinterContainerSASkey = Read-Host "SAS KEY"
 
     Write-Log ""
 
-    Write-Log "Enter your custom APPLICATION share SAS key:"
+    Write-Log "Enter your custom APPLICATION share SAS key:" "WARNING"  
 
     $ApplicationContainerSASkey = Read-Host "SAS KEY"
 
@@ -2733,12 +2870,18 @@ Function Setup--Azure-PowerDeploy_Registry_Remediations_For_Organization{
         [hashtable]$FunctionParams = @{
             PrinterContainerSASkey = $PrinterContainerSASkey
             ApplicationContainerSASkey = $ApplicationContainerSASkey
+            CustomRepoToken = $CustomRepoTokenToUse
+            CustomRepoURL = $RepoURLtoUse
         }
 
         [hashtable]$ReturnHash
 
         $ReturnHash = & $GenerateInstallCommand_ScriptPath `
         -DesiredFunction "RegRemediationScript" `
+        -RepoURL $RepoURLtoUse `
+        -RepoNickName $Global:TargetRepoNickName `
+        -RepoBranch $Global:RepoBranch `
+        -TargetWorkingDirectory $Global:TargetWorkingDirectory
         -FunctionParams $FunctionParams
 
         # Check the returned hashtable
@@ -2791,7 +2934,7 @@ Function Setup--Azure-PowerDeploy_Registry_Remediations_For_Organization{
         write-log "   2. Suggested name: ""PowerDeploy Registry Update"""
             Write-Log ""
 
-        Write-Log "   3. Suggested description: ""Used to update company registry values for use with PowerDeploy. For more information see the official repo: https://github.com/Adrian-Mandel/PowerDeploy"""
+        Write-Log "   3. Suggested description: ""Used to update company registry values for use with PowerDeploy. For more information see the official repo: https://github.com/Santa-Cruz-COE/PowerDeploy"""
             Write-Log ""
 
         Write-Log "   4. Click Next to go to the Script settings page."
@@ -2871,7 +3014,7 @@ Write-Log ""
 # Write-Log "NOTE: Instructions and required info will be in Cyan. Please note these lines."
 # Write-Log "NOTE: Progess feed and non required info will be in white. Feel free to ignore these lines." "INFO2"
 
-Pause
+# Pause
 
 # Warnings
 Write-Log ""
@@ -2879,12 +3022,12 @@ Write-Log ""
 if ($WorkingDirectory -ne "C:\ProgramData\PowerDeploy") {
     Write-Log "You are running this script from a non-standard location: $WorkingDirectory" "WARNING"
     Write-Log "This may cause permission issues with files created in the this folder. It is recommended to run this script from C:\ProgramData\PowerDeploy" "WARNING"
-    Write-Log ""
-    Write-Log "The following folders will be locked down:" "WARNING"
+    Write-Log "" "WARNING"
+    Write-Log "ATTENTION: The following folders will be locked down:" "WARNING"
     Write-Log " - $WorkingDirectory\Temp" "WARNING"
     Write-Log " - $WorkingDirectory\Logs" "WARNING"
     Write-Log " - $RepoRoot" "WARNING"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Write-Log "If that is acceptable, press enter to continue." "WARNING"
     Pause
     Write-Log ""
@@ -2897,42 +3040,21 @@ If( (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdent
     -and !(([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq 'S-1-5-18'))){ # skip block if user is System
 
     Write-Log "You are either not running this script as an administrator or as the logged in user." "ERROR"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Write-Log "WinGet WILL NOT WORK PROPERLY." "WARNING"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Write-Log "WinGet requires you to be running as the logged in user who is also an administrator." "WARNING"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Write-Log "If this is not possible, you can still use this script to set up applications for deployment via InTune." "WARNING"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Write-Log "App installs from InTune/CompanyPortal do not require the user to be an admin." "WARNING"
-    Write-Log ""
+    Write-Log "" "WARNING"
     Pause
     Write-Log ""
 
 } 
 
-# Update this repo?
-Write-Log "Would you like to update the repo to the latest version? (y/n)" "WARNING"
-$Answer = Read-Host "y/n"
-if ($Answer -ne "y" -and $Answer -ne "n") {
-    Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
-    $Answer = Read-Host "y/n"
-}
-
-If ($Answer -eq "y"){
-
-    $RepoNickName = Split-Path $RepoRoot -leaf
-
-    & $GitRunnerScript -WorkingDirectory $WorkingDirectory -RepoNickName $RepoNickName -RepoUrl 'https://github.com/Adrian-Mandel/PowerDeploy' -UpdateLocalRepoOnly $true
-
-    Write-Log "" "INFO2"
- 
-    Write-Log "Repo updated to the latest version." "INFO2"
-     
-} 
-
-Write-Log "" "INFO2"
-
+# Grab organization custom registry values and set as local variables
 Try{
 
 # Grab organization custom registry values
@@ -2964,15 +3086,47 @@ Try{
     Exit 1
 }
 
+# Update this repo
+# TODO: This isn't working quite yet. Need to add auth too.
+<#
+Write-Log "Would you like to update the repo to the latest version? (y/n)" "WARNING"
+$Answer = Read-Host "y/n"
+if ($Answer -ne "y" -and $Answer -ne "n") {
+    Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
+    $Answer = Read-Host "y/n"
+}
+
+If ($Answer -eq "y"){
+
+
+    Push-Location $RepoRoot
+
+    Write-Log "Updating local repo located at: $RepoRoot" "INFO2"
+
+    $gitOutput = git pull 2>&1
+    ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
+    
+
+    # Write-Log "" "INFO2"
+ 
+    # Write-Log "Repo updated to the latest version." "INFO2"
+     
+} 
+
+Write-Log "" "INFO2"
+#>
+
 
 
 Write-Log "" "INFO2"
 
 Write-Log ""
 Write-Log "Pre-reqs check complete."
+
 Write-Log ""
-Pause
+# Pause
 Write-Log ""
+clear
 Write-Log "================================="
 Write-Log ""
 
@@ -3010,6 +3164,7 @@ While ($SelectedFunctionNumber -lt 1 -or $SelectedFunctionNumber -ge $COUNTER) {
 $SelectedFunction = $AvailableFunctions[$SelectedFunctionNumber]
 Write-Log ""
 Write-Log "You have selected: $SelectedFunction"
+Write-Log ""
 Write-Log "================================="
 Write-Log ""
 & $SelectedFunction

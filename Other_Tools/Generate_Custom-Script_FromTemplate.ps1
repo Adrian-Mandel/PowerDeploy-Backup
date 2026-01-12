@@ -15,6 +15,7 @@ It can technically create custom scripts from any template script, but it's prim
 param(
     [string]$RepoNickName,
     [string]$RepoUrl,
+    [string]$RepoBranch,
     [string]$WorkingDirectory,
     [string]$ScriptPath,
     #[hashtable]$ScriptParams,
@@ -30,8 +31,11 @@ param(
 # $ScriptParams
 
 # Fix the params
+$OldRepoNickName = $RepoNickName
+
 $RepoNickName = "'" +    $RepoNickName + "'"
 $RepoUrl = "'" +    $RepoUrl + "'"
+$RepoBranch = "'" +    $RepoBranch + "'"
 $WorkingDirectory = "'" +    $WorkingDirectory + "'"
 $ScriptPath = "'" +    $ScriptPath + "'"
 $ScriptParamsBase64 = "'" +    $ScriptParamsBase64 + "'"
@@ -55,6 +59,19 @@ $GitRunnerScript = "$RepoRoot\Templates\Git-Runner_TEMPLATE.ps1"
 $PrinterDetectionScript = "$RepoRoot\Templates\Detection-Script-Printer_TEMPLATE.ps1"
 $WinGetDetectionScript = "$RepoRoot\Templates\Detection-Script-WinGetApp_TEMPLATE.ps1"
 
+
+Write-Host "SCRIPT: $ThisFileName | START" -ForegroundColor Yellow
+Write-Host ""
+# Output all vars to command line for debugging
+Write-Host "`n--- Input Parameters ---`n"
+Foreach ($var in $PSBoundParameters.GetEnumerator()) {
+    Write-Host "$($var.Key): $($var.Value)"
+}
+Write-Host "`n--- End Input Parameters ---`n"
+Write-Host ""
+
+# Main 
+
 if ($TemplateScript -eq "GitRunnerScript"){
     
     #$GitRunnerScript = "$RepoRoot\Templates\Git-Runner_TEMPLATE.ps1"
@@ -64,6 +81,7 @@ if ($TemplateScript -eq "GitRunnerScript"){
 
     $RepoNickName_DEC = '$RepoNickName = '+$RepoNickName
     $RepoUrl_DEC = '$RepoUrl = '+$RepoUrl
+    $RepoBranch_DEC = '$RepoBranch = '+$RepoBranch
     $WorkingDirectory_DEC = '$WorkingDirectory = '+$WorkingDirectory
     $ScriptPath_DEC = '$ScriptPath = '+$ScriptPath
     $ScriptParamsBase64_DEC = '$ScriptParamsBase64 = '+$ScriptParamsBase64
@@ -76,6 +94,7 @@ $NewCode      = @"
 
     $RepoNickName_DEC
     $RepoUrl_DEC
+    $RepoBranch_DEC
     $WorkingDirectory_DEC
     $ScriptPath_DEC
     $ScriptParamsBase64_DEC
@@ -85,9 +104,9 @@ $NewCode      = @"
 
 } elseif( $TemplateScript -eq "PrinterDetectionScript"){ # If you want to add more templates, copy this block and modify accordingly
 
-    $EndScriptNameTemplate = "Detect-Printer_Custom"
-    Write-Log "this functionality is not yet implemented" "ERROR"
-    Exit 1
+    # $EndScriptNameTemplate = "Detect-Printer_Custom"
+    # Write-Log "this functionality is not yet implemented" "ERROR"
+    # Exit 1
     
 }else {
     Write-Host "ERROR: Unknown TemplateScript value: $TemplateScript"
@@ -100,10 +119,10 @@ $NewCode      = @"
 $Ext      = [System.IO.Path]::GetExtension($TargetScript)
 
 if($CustomNameModifier){
-    $EndScript ="$EndScriptNameTemplate.$CustomNameModifier.$(Get-Date -Format 'yyyyMMdd_HHmmss')$Ext"
+    $EndScript ="$EndScriptNameTemplate.$OldRepoNickName.$CustomNameModifier.$(Get-Date -Format 'yyyyMMdd_HHmmss')$Ext"
 }
 else {
-    $EndScript ="$EndScriptNameTemplate.$(Get-Date -Format 'yyyyMMdd_HHmmss')$Ext"
+    $EndScript ="$EndScriptNameTemplate.$OldRepoNickName.$(Get-Date -Format 'yyyyMMdd_HHmmss')$Ext"
 }
 
 
