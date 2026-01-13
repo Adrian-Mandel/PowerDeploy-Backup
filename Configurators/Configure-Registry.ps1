@@ -195,7 +195,7 @@ Function Reg-Read{
     # Check if the key exists
     if (Test-Path $registryPath) {
 
-        
+
         If($ValueNameToRead -eq "") {
             Write-Log "No ValueName provided to read at key path, BUT the path was found: ($registryPath)"
             Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
@@ -208,6 +208,16 @@ Function Reg-Read{
             $ReturnValue = $($ThisValue.$ValueNameToRead)
             Write-Log "Current value: $ReturnValue"
             Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+
+            if ($ReturnValue -eq $null -and -not ($ThisValue.PSObject.Properties.Name -contains $ValueNameToRead)) {
+                Write-Log "Key path ($registryPath) exists, but value name at ($ValueNameToRead) does not exist"
+                Return "KeyPath exists, but ValueName does not exist"
+            }
+
+            # if ($ReturnValue -eq $null) {
+            #     Write-Log "Value name at ($ValueNameToRead) at key path ($registryPath) does not contain a value"
+            #     Return "Value not found"
+            # }
 
             Return $ReturnValue
 
@@ -966,6 +976,11 @@ if ($ReturnValue -eq "KeyPath exists, but could not read value" -or $ReturnValue
 
     Write-Log "SCRIPT: $ThisFileName | No returnable value at ($KeyPath\$ValueName): $ReturnValue" "WARNING"
     $NoFoundValue = $True
+
+} elseif ($ReturnValue -eq "Value not found") {
+
+    Write-Log "SCRIPT: $ThisFileName | The path and value name were found, but there is no value."
+
 
 } else {
 
