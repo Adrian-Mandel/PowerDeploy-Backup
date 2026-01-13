@@ -179,7 +179,18 @@ function Test-PathSyntaxValidity {
 
 Function CheckReg {
 
-    $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -WorkingDirectory $WorkingDirectory -Function "Read"
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: CheckReg | START | Attemping to call reg read script"
+    Write-Log ""
+
+    if ($Value -eq "" -or $Value -eq $null){
+
+        $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -WorkingDirectory $WorkingDirectory -Function "Read"
+
+    } else {
+
+        $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -WorkingDirectory $WorkingDirectory -Function "Read"
+
+    }
 
     Write-Log "SCRIPT: $ThisFileName | Value read from registry: $EndValue"
     Write-Log "SCRIPT: $ThisFileName | Target Value to match: $Value"
@@ -200,7 +211,8 @@ Function CheckReg {
         Exit 1
 
     }
-
+    Write-Log ""
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: CheckReg | END"
 
 }
 
@@ -217,20 +229,11 @@ Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX NOTE: PRE-CHECK is not logged"
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Checking if supplied paths are valid"
 # Test the paths
 
-if ($UpdateLocalRepoOnly -eq $True){
-
     $pathsToValidate = @{
         'WorkingDirectory' = $WorkingDirectory
 
     }
 
-} else {
-
-    $pathsToValidate = @{
-        'WorkingDirectory' = $WorkingDirectory
-    }
-
-}
 Test-PathSyntaxValidity -Paths $pathsToValidate -ExitOnError
 
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Checking the user contexts..."
@@ -302,25 +305,26 @@ Try{
 
 
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-Write-Log "===== General Remediation Script Suite - Registry ====="
-
+Write-Log ""
+Write-Log "===== SCRIPT: $ThisFileName | START ====="
+Write-Log ""
 Write-Log "Function: $Function"
+Write-Log ""
 Write-Log "Registry Changes:"
-Foreach($line in $TotalRegistryChangesArray) {Write-Log "   $Line"}
-
-
+Write-Log ""
+Foreach($line in $TotalRegistryChangesArray) {Write-Log "   $Line"; Write-Log ""}
 Write-Log "========================================================"
-
-
+Write-Log ""
 
 # Registry changes
 
 if ($RegistryChanges -ne "" -and $RegistryChanges -ne $null){
 
     Write-Log "SCRIPT: $ThisFileName | Registry changes requested. Beginning check work..."
-
+    $counter = 1
     Foreach($line in $TotalRegistryChangesArray){
+
+        Write-Log "SCRIPT: $ThisFileName | Processing line: $counter"
 
         # Build a key/value map from -Param "value" pairs (order doesn't matter)
         $pairs = @{}
@@ -337,6 +341,9 @@ if ($RegistryChanges -ne "" -and $RegistryChanges -ne $null){
         [string]$Value   = $pairs['Value']
         [string]$ValueType = $pairs['ValueType']
 
+        Write-Log ""
+
+
         Write-Log "Target values:"
 
         
@@ -347,6 +354,8 @@ if ($RegistryChanges -ne "" -and $RegistryChanges -ne $null){
         Write-log "   Value: $Value"
 
         Write-Log "   ValueType: $ValueType"
+        Write-Log ""
+
 
 
         if ($Function -eq "Detect"){
@@ -361,7 +370,17 @@ if ($RegistryChanges -ne "" -and $RegistryChanges -ne $null){
             Write-Log "SCRIPT: $ThisFileName | Now attempting to apply these values to the registry..."
 
             Try {
-                $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -Value $Value -WorkingDirectory $WorkingDirectory -Function 'Modify' -AlsoLockDown $AlsoLockDown
+
+                if ($Value -eq "" -or $Value -eq $null){
+
+                    $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -Value $Value -WorkingDirectory $WorkingDirectory -Function 'Modify' -AlsoLockDown $AlsoLockDown -KeyOnly $True
+
+                } else {
+
+                    $EndValue = & $RegEditScriptPath -KeyPath $KeyPath -ValueName $ValueName -ValueType $ValueType -Value $Value -WorkingDirectory $WorkingDirectory -Function 'Modify' -AlsoLockDown $AlsoLockDown
+
+                }
+                
             } catch {
 
 
@@ -382,6 +401,10 @@ if ($RegistryChanges -ne "" -and $RegistryChanges -ne $null){
             Write-Log "SCRIPT: $ThisFileName | Moving on the next line if there is one"
 
         }
+
+        $counter++
+
+        Write-Log ""
 
     }
 
