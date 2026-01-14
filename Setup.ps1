@@ -434,6 +434,7 @@ Function Set-URL {
     
 }
 
+# DONE (still need testing) 1/14/26
 function Setup--Azure-Printer{
 
     # Determine if this is a test or production deployment
@@ -549,10 +550,11 @@ function Setup--Azure-Printer{
         Write-Log " 4 - Select this container: $PrinterData_JSON_ContainerName"
         # Write-Log ""
         # Pause
+        Write-Log ""
 
     } 
 
-    Write-Log ""
+
     # Write-Log ""
 
     Write-Log "Have you uploaded the required printer driver ZIP file to Azure Blob Storage?" "WARNING"
@@ -795,10 +797,10 @@ function Setup--Azure-Printer{
     Write-Log ""
     Write-Log "Install command, uninstall command, and detection script created!" "SUCCESS"
     Write-Log ""
-    Write-Log "When you are ready we can move on to the final step of uploading and creating the Intune Win32 application."
-    Write-Log ""
-    Pause
-    Write-Log ""
+    # Write-Log "When you are ready we can move on to the final step of uploading and creating the Intune Win32 application."
+    # Write-Log ""
+    # Pause
+    # Write-Log ""
     Clear
     Write-Log "==========================================================================================="
     Write-Log "UPLOAD AND CREATE INTUNE WIN32 APPLICATION"
@@ -873,12 +875,14 @@ function Setup--Azure-Printer{
 
 }
 
+# DONE (still need testing) 1/14/26
 Function Setup--Azure-WindowsApp{
 
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
-
+    Write-Log "==========================================================================================="
     Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    Write-Log "==========================================================================================="
     Write-Log ""
 
 
@@ -894,74 +898,104 @@ Function Setup--Azure-WindowsApp{
 
     # main 
 
-    Write-Log "To begin, we will prepare the data required to set up an app deployment via Intune."
+    Write-Log "Is your app already in either the public or private JSON files?" "WARNING"
     Write-Log ""
-    Write-Log "App data is stored in one of two JSON files:"
+
+    Write-Log "NOTE: If you are unsure, select 'n' to proceed with guided setup." "WARNING"
     Write-Log ""
-    Write-Log " - Public JSON: "
-    Write-Log "     - Location:GitHub repository where this script is hosted."
-    Write-Log "     - Updates: Maintained by the community and updated periodically."
-    Write-Log " - Private JSON: "
-    Write-Log "     - Location: Your organization's Azure Blob Storage."
-    Write-Log "     - Updates: Managed by your organization for custom or proprietary apps."
 
-    # User needs:
-        # If application IS in the public or private JSON...
-            # - Application Name (that's it!!)
-        # If application IS NOT in the public or private JSON...
-            # - Application Name
-            # - Install Method
-                # if Winget:
-                    # - Winget ID
-                # if MSI-Online
-                    # - URL
-                    # - MSI name
-                # if Custom_Script
-                    # - Script Path from Repo Root
-                    # - Custom Script Args (if any)
-            # - PreRequisites (if any)
-
+    $Answer = Read-Host "(y/n)"
+    While ($Answer -ne "y" -and $Answer -ne "n") {
+        Write-Log "Invalid input. Please enter 'y' for yes or 'n' for no." "ERROR"
+        $Answer = Read-Host "(y/n)"
+    }
 
     Write-Log ""
-    # Write-Log "REQUIRED RESOURCES:"
-    # Write-Log ""
-    # Write-Log "If application IS ALREADY in the public or private JSON..."
-    # Write-Log "    1 - Application Name (that's it!!)"
-    # Write-Log ""
-    # Write-Log "If application IS NOT in the public or private JSON..."
-    # Write-Log "    1 - Application Name"
-    # Write-Log "    2 - Install Method"
-    # Write-Log "        if Winget:"
-    # Write-Log "            - Winget ID"
-    # Write-Log "        if MSI-Online"
-    # Write-Log "            - URL"
-    # Write-Log "            - MSI name"
-    # Write-Log "        if Custom_Script"
-    # Write-Log "            - Script Path from Repo Root"
-    # Write-Log "            - Custom Script Args (if any)"
-    # Write-Log "    3 - PreRequisites (if any)"
-    # Write-Log ""
-    # Write-Log "Save these details, as you will need them shortly."
-    # Write-Log ""
 
-    # Pause
-    Write-Log ""
-    # Write-Log "Next we will see what applications are already available for us to put into InTune." 
-    Write-Log "We can first see what apps are already available in the public and private JSON files." 
-    Write-Log ""
-    Write-Log "Choose an app from the selection or you can add your own!"
-    Write-Log ""
-    Write-Log "We will then make the InTune entry based off of the selected data in the JSON."
-    Write-Log ""
-    Write-Log "Would you like to select an existing application from the JSON files? (y/n)" "WARNING"
-    $Answer = Read-Host "y/n"
-    Write-Log ""
+
+    If ($Answer -eq "n"){
+
+
+
+
+        Write-Log "==========================================================================================="
+        Write-Log "PRE-REQUISITES FOR APPLICATION SETUP"
+        Write-Log "==========================================================================================="
+        Write-Log ""
+        
+
+        Write-Log "To begin, we will prepare the data required to set up an app deployment via Intune."
+        Write-Log ""
+        Write-Log "App data is stored in one of two JSON files:"
+        Write-Log ""
+        Write-Log " - Public JSON: "
+        Write-Log "     - Location:GitHub repository where this script is hosted."
+        Write-Log "     - Updates: Maintained by the community and updated periodically."
+        Write-Log " - Private JSON: "
+        Write-Log "     - Location: Your organization's Azure Blob Storage."
+        Write-Log "     - Updates: Managed by your organization for custom or proprietary apps."
+
+        # User needs:
+            # If application IS in the public or private JSON...
+                # - Application Name (that's it!!)
+            # If application IS NOT in the public or private JSON...
+                # - Application Name
+                # - Install Method
+                    # if Winget:
+                        # - Winget ID
+                    # if MSI-Online
+                        # - URL
+                        # - MSI name
+                    # if Custom_Script
+                        # - Script Path from Repo Root
+                        # - Custom Script Args (if any)
+                # - PreRequisites (if any)
+
+
+        Write-Log ""
+        # Write-Log "REQUIRED RESOURCES:"
+        # Write-Log ""
+        # Write-Log "If application IS ALREADY in the public or private JSON..."
+        # Write-Log "    1 - Application Name (that's it!!)"
+        # Write-Log ""
+        # Write-Log "If application IS NOT in the public or private JSON..."
+        # Write-Log "    1 - Application Name"
+        # Write-Log "    2 - Install Method"
+        # Write-Log "        if Winget:"
+        # Write-Log "            - Winget ID"
+        # Write-Log "        if MSI-Online"
+        # Write-Log "            - URL"
+        # Write-Log "            - MSI name"
+        # Write-Log "        if Custom_Script"
+        # Write-Log "            - Script Path from Repo Root"
+        # Write-Log "            - Custom Script Args (if any)"
+        # Write-Log "    3 - PreRequisites (if any)"
+        # Write-Log ""
+        # Write-Log "Save these details, as you will need them shortly."
+        # Write-Log ""
+
+        # Pause
+        Write-Log ""
+        # Write-Log "Next we will see what applications are already available for us to put into InTune." 
+        Write-Log "We can first see what apps are already available in the public and private JSON files." 
+        Write-Log ""
+        Write-Log "Choose an app from the selection or you can add your own!"
+        Write-Log ""
+        Write-Log "We will then make the InTune entry based off of the selected data in the JSON."
+        Write-Log ""
+        Write-Log "Would you like to select an existing application from the JSON files? (y/n)" "WARNING"
+        $Answer = Read-Host "y/n"
+        Write-Log ""
+
+    }
+
+
     $TargetApp = $null
     if ($Answer -ne "n") {
 
 
         $DialogueSelection = "B"
-        $TargetApp = Select-ApplicationFromJSON
+        $TargetApp = Select-ApplicationFromJSON -DialogueSelection "$DialogueSelection"
         $DialogueSelection = "A" # reset for next use
 
         if ($TargetApp -eq $null) {
@@ -1024,6 +1058,10 @@ Function Setup--Azure-WindowsApp{
 
     if ($TargetApp -eq $null) {
         
+        Write-Log "==========================================================================================="
+        Write-Log "GUIDED SETUP FOR NEW APPLICATION ENTRY IN PRIVATE JSON"
+        Write-Log "==========================================================================================="
+        Write-Log ""
 
         
         # Write-Log "No pre-existing application entry for $AppNameToFind was selected from the JSON files. We will move forward with doing a new custom application entry in the private JSON."
@@ -1055,7 +1093,7 @@ Function Setup--Azure-WindowsApp{
             Write-Log "" "INFO2"
             try{
 
-                # TODO: Why did I do Write-Host here instead of Write-Log? Was it for formatting reasons?
+                # NOTE: Write-Host used here to preserve formatting of winget output. It doesn't get logged tho.
                 Write-Host ""
                 Write-Host "================ Winget Search Results ===================="
                 Write-Host ""
@@ -1063,30 +1101,30 @@ Function Setup--Azure-WindowsApp{
                 Write-Host ""
                 Write-Host "==========================================================="
                 Write-Host ""
-
-
-                Write-Log "" "INFO2"
-                Write-Log "Winget search complete." "INFO2"
+                Write-Host "Winget search complete."
+                Write-Host ""
+                Write-Log "==========================================================================================="
+                Write-Log "SELECT A WINGET ID FROM THE SEARCH RESULTS ABOVE"
+                Write-Log "==========================================================================================="
+                Write-Host ""
+                Write-Log "1 - Review the above search results to find the appropriate Winget ID for your application."
                 Write-Log ""
-
-                Write-Log "Please review the above search results to find the appropriate Winget ID for your application."
+                Write-Log "2 - Test out the Winget ID locally first to ensure it installs the correct application before adding it to the JSON." #"WARNING"
+                Write-Log "     - Example command to test locally: winget install <WingetID>"
                 Write-Log ""
-
-                Write-Log "Test out the Winget ID locally first to ensure it installs the correct application before adding it to the JSON." #"WARNING"
+                Write-Log "3 - If you do not see a suitable match, you may need to research further to find the correct Winget ID or consider alternative installation methods."
                 Write-Log ""
-                Write-Log "Example command to test locally: winget install <WingetID>"
+                Write-Log "Enter your selected Winget ID or leave blank to skip:" "WARNING"
+                $SelectedWingetID = Read-Host "Winget ID"
                 Write-Log ""
-
-                Write-Log "If you do not see a suitable match, you may need to research further to find the correct Winget ID or consider alternative installation methods."
-                Write-Log ""
-                Write-Log "When you are ready we will move on to updating the private JSON with your new application/ID."
+                # Write-Log "When you are ready we will update the private JSON with your new application/ID."
 
 
             } catch {
                 Write-Log "An error occurred while attempting to search Winget. Please ensure Winget is installed and accessible from this script. Error: $_" "ERROR"
             }
 
-            Pause
+            # Pause
 
 
         } else {
@@ -1096,6 +1134,10 @@ Function Setup--Azure-WindowsApp{
         }
         # Pause
 
+        Write-Log ""
+        Write-Log "==========================================================================================="
+        Write-Log "NAVIGATE TO AZURE BLOB STORAGE"
+        Write-Log "==========================================================================================="
         Write-Log ""
 
         Write-Log "Next we will navigate to our Azure Blob Storage container to edit the private JSON to add your new application."
@@ -1111,6 +1153,10 @@ Function Setup--Azure-WindowsApp{
         Write-Log " 4 - Select this container: $ApplicationData_JSON_ContainerName"
         Write-Log ""
         Pause
+        Write-Log ""
+        Write-Log "==========================================================================================="
+        Write-Log "EDIT PRIVATE APPLICATION DATA JSON"
+        Write-Log "==========================================================================================="
 
         Write-Log ""    
         Write-Log "Next we need to edit the private JSON file (ApplicationData.json) which contains the details of all custom applications available for deployment."
@@ -1125,7 +1171,7 @@ Function Setup--Azure-WindowsApp{
         Write-Log "    1 - Application Name"
         Write-Log "    2 - Install Method"
         Write-Log "        if Winget:"
-        Write-Log "            - Winget ID"
+        Write-Log "            - Winget ID ($SelectedWingetID)"
         Write-Log "        if MSI-Online"
         Write-Log "            - URL"
         Write-Log "            - MSI name"
@@ -1201,11 +1247,17 @@ Function Setup--Azure-WindowsApp{
 
         }
 
+    Write-Log "==========================================================================================="
+    Write-Log "AUTOMATIC CREATION OF:"
+    Write-Log " - INTUNE WIN32 APP PACKAGE"
+    Write-Log " - INSTALL/UNINSTALL COMMANDS/SCRIPTS"
+    Write-Log "==========================================================================================="
+
     Write-Log ""
     Write-Log "Next we will automatically create the Win32 package for deploying the app from InTune."
     Write-Log ""
 
-    Pause
+    # Pause
 
     Make-InTuneWin -SourceFile "$GitRunnerScript" 
     $ApplicationIntuneWinPath = $Global:intunewinpath
@@ -1440,7 +1492,17 @@ Function Setup--Azure-WindowsApp{
     Write-Log "Next, we will manually create a Win32 app in InTune using the new .intunewin file, command, and script."
     Write-Log ""
 
-    Pause
+    # Pause
+
+    Clear
+    Write-Log "==========================================================================================="
+    Write-Log "UPLOAD AND CREATE INTUNE WIN32 APPLICATION"
+    Write-Log "==========================================================================================="
+    Write-Log ""
+    Write-Log "All prep complete!"
+    Write-Log ""
+    Write-Log "Next we will manually create a Win32 application in InTune for this app using the new intunewin file, script, and install command."
+    Write-Log ""
 
     if ($Global:DeployMode -eq "Production"){
 
@@ -1457,9 +1519,13 @@ Function Setup--Azure-WindowsApp{
     Write-Log " 1 - Navigate to Microsoft Endpoint Manager admin center > Devices > Windows > Windows apps"
     Write-Log "     - Direct url: https://intune.microsoft.com/#view/Microsoft_Intune_DeviceSettings/AppsWindowsMenu/~/windowsApps"
     Write-Log "     - + Create > App type: Windows app (Win32)"
-    Write-Log ""   
+    Write-Log ""
+    Pause   
+    Write-Log ""
     Write-Log " 2 - Upload the .intunewin file located here: $ApplicationIntuneWinPath"
-    Write-Log ""    
+    Write-Log ""
+    Pause   
+    Write-Log "" 
     Write-Log " 3 - APP INFORMATION:"
     write-log "     - Name: follow your org naming conventions"
     Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
@@ -1469,7 +1535,9 @@ Function Setup--Azure-WindowsApp{
     Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version.."
     Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
     Write-Log "     - Everything else on this page is up to your discretion."
-    Write-Log ""    
+    Write-Log ""
+    Pause   
+    Write-Log "" 
     Write-Log " 4 - PROGRAM:"
     Write-Log "     - Install command:"
     Write-Log "         - Use the install command found inside this file: $MainInstallCommandTXT"
@@ -1479,10 +1547,14 @@ Function Setup--Azure-WindowsApp{
     Write-Log "     - Allow available uninstall: No"
     Write-Log "     - Install behavior: System"
     Write-Log "     - Device restart behavior: No specific action"
-    Write-Log ""    
+    Write-Log ""
+    Pause   
+    Write-Log ""  
     Write-Log " 5 - REQUIREMENTS:"
     Write-Log "     - Architecture: Unnecessary unless you know the app is specific to x86 or x64. WinGet apps will handle this automatically."
     Write-Log "     - Minimum operating system: Minimum available version unless you know otherwise."
+    Write-Log ""
+    Pause   
     Write-Log ""
     Write-Log " 6 - DETECTION:"
     Write-Log "     - Rules format: Use a custom detection script"
@@ -1490,9 +1562,15 @@ Function Setup--Azure-WindowsApp{
     Write-Log "     - Run script as 32-bit process on 64-bit clients: No"
     Write-Log "     - Enforce script signature check: No"
     Write-Log ""
+    Pause   
+    Write-Log ""
     Write-Log " 7 - DEPENDENCIES: None"
     Write-Log ""
+    Pause   
+    Write-Log ""
     Write-Log " 8 - SUPERSEDENCE: None"
+    Write-Log ""
+    Pause   
     Write-Log ""
     Write-Log " 9 - ASSIGNMENTS: Assign to the required groups/devices for your organization."
     Write-Log ""
@@ -1624,6 +1702,7 @@ Function Install--Local-Printer{
 
 }   
 
+# DONE AND TESTED 1/14/26
 Function Uninstall--Local-Printer{
 
     # Write-Log "Uninstalling a local printer function is still being developed." "ERROR"
@@ -1631,22 +1710,67 @@ Function Uninstall--Local-Printer{
 
     # List the installed printers
     $PrinterList = Get-Printer | Select-Object -ExpandProperty Name
+    $Counter = 1
+    $HashTable = @{}
+
     Write-Log "Here are the installed printers on this machine:"
-    foreach ($printer in $PrinterList) {
-        Write-Log " - $printer"
-    }
     Write-Log ""
 
-    # Select a printer to uninstall
-    Write-Log "Please enter the name of the printer you wish to uninstall from the above list:" "WARNING"
-    $PrinterName = Read-Host "Printer Name"
-    While ([string]::IsNullOrWhiteSpace($PrinterName)) {
-        Write-Log "No printer name provided. Please enter a printer name from the list above:" "ERROR"
-        $PrinterName = Read-Host "Printer Name"
+    foreach ($printer in $PrinterList) {
+
+            Write-Log "$Counter - $printer"
+
+            $HashTable.Add($Counter,$printer)
+
+            $Counter++
+
+    }
+    Write-Log ""
+    $Exit = "n"
+    While ($Exit -ne "y") {
+
+            
+        Write-Log "Please enter the number of the printer you wish to uninstall from the above list:" "WARNING"
+
+        [int]$PrinterNumToFind = Read-Host "Please enter a number between 1 and $($COUNTER - 1)"
+
+
+        While ( [int]$PrinterNumToFind -lt 1 -or [int]$PrinterNumToFind -ge $COUNTER ) {
+
+                    Write-Log "Invalid choice. Please select a valid number from the list above." "WARNING"
+                    $PrinterNumToFind = Read-Host "Please enter a number between 1 and $($COUNTER - 1)"
+        }
+
+        # $PrinterName = $HashTable[$PrinterNumToFind]
+
+        [string]$PrinterNameToFind = $HashTable[[int]$PrinterNumToFind]
+
+        $PrinterName = $PrinterNameToFind
+        Write-Log ""
+        Write-Log "You have selected to uninstall the printer: $PrinterName"
+        Write-Log ""
+        Write-Log "Is this acceptable?" "WARNING"
+        $Exit = Read-Host "y/n"
+        Write-Log ""
+
     }
 
+
+    # Select a printer to uninstall
+    # Write-Log "Please enter the name of the printer you wish to uninstall from the above list:" "WARNING"
+    # $PrinterName = Read-Host "Printer Name"
+    # While ([string]::IsNullOrWhiteSpace($PrinterName)) {
+    #     Write-Log "No printer name provided. Please enter a printer name from the list above:" "ERROR"
+    #     $PrinterName = Read-Host "Printer Name"
+    # }
+
     # Call the uninstall script with the selected printer
-    & $UninstallPrinter_ScriptPath -PrinterName $PrinterName -WorkingDirectory $WorkingDirectory
+    Try{
+        & $UninstallPrinter_ScriptPath -PrinterName $PrinterName -WorkingDirectory $WorkingDirectory
+    } catch {
+        Write-Log "An error occurred while attempting to uninstall the printer: $_" "ERROR"
+        Exit 1
+    }
 
     if ($LASTEXITCODE -ne 0) {
         Write-Log "Uninstall-Printer script failed with exit code: $LASTEXITCODE" "ERROR"
@@ -1658,6 +1782,7 @@ Function Uninstall--Local-Printer{
     Pause
 }
 
+# DONE AND TESTED 1/14/26
 Function Uninstall--Local-Application{
 
     # UNFINISHED
@@ -2052,12 +2177,12 @@ Function Uninstall--Local-Application{
         
 
         Write-Log ""
-
+        Clear
         Write-Log "Available AppPackage uninstall methods:"
 
-        Write-Log " 1 - AppxPackage - Apps currently installed on this machine regardless of user"
+        Write-Log " 1 - AppxPackage - Apps CURRENTLY INSTALLED on this machine (regardless of user)"
 
-        Write-Log " 2 - AppxProvisionedPackage - Apps that will be installed for new users"
+        Write-Log " 2 - AppxProvisionedPackage - Apps that WILL BE INSTALLED for new users"
 
 
         Write-Log ""
@@ -2265,12 +2390,15 @@ Function Uninstall--Local-Application{
     Write-Log "================================="
     Write-Log ""
 
-    Write-Log "Enter the # of your desired uninstall function:" "WARNING"
+    
     # Write-Log "NOTE: If you are not sure where to begin, start with JSON--search-and-uninstall." "WARNING"
     # Write-Log "NOTE: For All Adobe CC apps, please use Adobe--search-and-uninstall." "WARNING"
-    Write-Log "NOTE: Each of these may offer exclusive applications not found in the others." "WARNING"
-    Write-Log "NOTE: For most general use cases, try Registry--search-and-uninstall." "WARNING"
-    Write-Log "NOTE: For the largest selection of apps, try AppPackage--search-and-uninstall." "WARNING"
+    Write-Log "NOTE THE FOLLOWING:"
+    Write-Log " - Each of these may offer exclusive applications not found in the others."
+    Write-Log " - For most general use cases, try Registry--search-and-uninstall."
+    Write-Log " - For the largest selection of apps, try AppPackage--search-and-uninstall."
+    Write-Log ""
+    Write-Log "Enter the # of your desired uninstall function:" "WARNING"
     [int]$SelectedFunctionNumber = Read-Host "Please enter a #"
 
 
@@ -3073,7 +3201,7 @@ Function ParseJSON {
 
 }
 
-# DONE
+# DONE (still need testing) 1/14/26
 Function Setup--Azure-Registry_Remediations_For_Org{
 
     # Determine if this is a test or production deployment
@@ -3603,8 +3731,11 @@ if ($gitURL -match [regex]::Escape($CustomRepoURL) -and $CustomRepoURL -ne "" -a
 
 
 Write-Log "=================================="
-Write-Log "===== Current Git Repo info: ====="
+Write-Log "============ UPDATES ============"
 Write-Log "=================================="
+Write-Log ""
+Write-Log "Current Git Repo info:"
+Write-Log ""
 Write-Log "Operational Mode:                 $PerceivedMode"
 Write-Log "Details:"
 Write-Log "     URL:                         $gitURL"
@@ -3612,57 +3743,61 @@ Write-Log "     Branch:                      $gitBranch"
 Write-Log "     Latest Commit on Remote:     $($gitCommitRemote)"
 Write-Log "     Local Commit:                $gitCommit"
 Write-Log "=================================="
-# Write-Log "NOTE: Operational mode indicates which version of the code this currently repo is using."
-Write-Log ""
-Write-Log "Would you like to update the repo to the latest version?" "WARNING"
-$Answer = Read-Host "y/n"
-if ($Answer -ne "y" -and $Answer -ne "n") {
-    Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
+
+
+if ($gitCommit -eq $gitCommitRemote) {
+
+    Write-Log ""
+    Write-Log "Your local repo is already up to date with the latest version." "SUCCESS"
+    Write-Log ""
+} else {
+
+    Write-Log ""
+    Write-Log "A newer version of this repo is available." "WARNING"
+
+
+    # Write-Log "NOTE: Operational mode indicates which version of the code this currently repo is using."
+    Write-Log ""
+    Write-Log "Would you like to update the repo to the latest version?" "WARNING"
     $Answer = Read-Host "y/n"
+    if ($Answer -ne "y" -and $Answer -ne "n") {
+        Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
+        $Answer = Read-Host "y/n"
+    }
+
+    If ($Answer -eq "y"){
+
+        
+
+        Write-Log "Updating local repo located at: $RepoRoot" "INFO2"
+
+        Write-Log "" "INFO2"
+
+
+        # Write-Log "Running Git Pull to update the repo..." "INFO2"
+
+        $gitOutput = git pull 2>&1
+        ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+        
+        Write-Log "" "INFO2"
+    
+        Write-Log "Repo updated to the latest version."
+        Pause
+        
+    } 
+
 }
-
-If ($Answer -eq "y"){
-
-    
-
-    Write-Log "Updating local repo located at: $RepoRoot" "INFO2"
-
-    Write-Log "" "INFO2"
-
-
-    # Write-Log "Running Git Pull to update the repo..." "INFO2"
-
-    $gitOutput = git pull 2>&1
-    ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
-    
-    Write-Log "" "INFO2"
- 
-    Write-Log "Repo updated to the latest version."
-    Pause
-     
-} 
 
 Pop-Location 
 
-
-Write-Log "" "INFO2"
-
-
-
-
-Write-Log "" "INFO2"
-
 Write-Log ""
 Write-Log "Pre-reqs check complete."
+Write-Log ""
 
-Write-Log ""
-# Pause
-Write-Log ""
 clear
+
 Write-Log "================================="
 Write-Log ""
-
-
 Write-Log "These are the functions currently available through this script:"
 Write-Log ""
 
