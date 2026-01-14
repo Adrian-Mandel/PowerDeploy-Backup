@@ -639,7 +639,7 @@ function Setup--Azure-Printer{
     Write-Log ""
     Write-Log "This will help ensure that all details are correct and the installation process works as expected."
     Write-Log ""
-    Write-Log "Install this printer from the JSON on this local machine for testing purposes?" "WARNING"
+    Write-Log "Would you like to test by installing this printer from the JSON on this local machine?" "WARNING"
     $Answer = Read-Host "(y/n)"
     Write-Log ""
 
@@ -3703,7 +3703,7 @@ Try{
 Push-Location $RepoRoot
 
     Write-Log "Dot sourcing Git Runner template script located at: $GitRunnerTemplate_ScriptPath" "INFO2"
-    . $GitRunnerTemplate_ScriptPath -RepoURL "ZZ" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory 
+    . $GitRunnerTemplate_ScriptPath -RepoURL "ZZ" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -UpdateLocalRepoOnly $true
 
     Write-Log "Running Git pre-reqs" "INFO2"
     Write-Log "" "INFO2"
