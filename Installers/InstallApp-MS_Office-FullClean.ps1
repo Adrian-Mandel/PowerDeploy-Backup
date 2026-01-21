@@ -41,6 +41,9 @@ $DownloadAzureBlobSAS_ScriptPath = "$RepoRoot\Downloaders\DownloadFrom-AzureBlob
 # path of Organization_CustomRegistryValues-Reader_TEMPLATE
 $OrgRegReader_ScriptPath = "$RepoRoot\Templates\OrganizationCustomRegistryValues-Reader_TEMPLATE.ps1"
 
+# path to application detection script
+$AppDetectionScriptPath = "$RepoRoot\Templates\Detection-Script-Application_TEMPLATE.ps1"
+
 $LogPath = "$LogRoot\$ThisFileName.Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 #################
@@ -245,8 +248,94 @@ Write-Log "========================================"
 Try{ 
 
     Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall Microsoft Office"
-    & $UninstallerScript -AppName "Microsoft_Office" -UninstallType "All" -UninstallString_DisplayName "Microsoft Office" -WinGetID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
-    if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+    # & $UninstallerScript -AppName "Microsoft_Office" -UninstallType "All" -UninstallString_DisplayName "Microsoft 365 Apps for enterprise - en-us" -WinGetID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
+    # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+    # & $UninstallerScript -AppName "Microsoft_Office" -UninstallType "All" -UninstallString_DisplayName "Microsoft 365 Apps for enterprise - en-us" -WinGetID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
+    # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+
+    # I will expand these over time as I find more items to clean
+
+    # NOTE: Removed this section because WinGet uninstall of Office cannot be done silently this way
+    # Winget IDs to uninstall
+    # $WinGetIDToUninstall = @(
+
+    #     "Microsoft.Office"
+
+    # )
+
+    # foreach ($WinGetApp in $WinGetIDToUninstall) {
+
+    #     & $UninstallerScript -AppName "$WinGetApp" -UninstallType "Remove-App-WinGet" -WorkingDirectory $WorkingDirectory
+    #     if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+
+    # }
+
+
+
+
+
+
+
+
+
+
+    # TODO: The items below will fail because these methods so far are not able to uninstall Office products. Need to investigate why. Then I can implement this: https://learn.microsoft.com/en-us/troubleshoot/microsoft-365/admin/miscellaneous/assistant-office-uninstall
+
+    # apppackage cleanup
+    $AppPackagesToRemove = @(
+
+        "Microsoft.OfficePushNotificationUtility",
+        "Microsoft.Office.ActionsServer",
+        "Microsoft.MicrosoftOfficeHub"
+
+    )
+
+    Foreach ($AppPackage in $AppPackagesToRemove) {
+
+        $packages = Get-AppxPackage -Name $AppPackage -AllUsers -ErrorAction SilentlyContinue
+
+        foreach ($package in $packages) {
+
+            & $UninstallerScript -AppName "$AppPackage" -UninstallType "Remove-AppxPackage" -WorkingDirectory $WorkingDirectory
+            if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+
+        }
+    }
+
+    # CIM instance uninstall
+    $CIMtoUninstall = @(
+
+        "Office 16 Click-to-Run Extensibility Component"
+
+    )
+
+    foreach ($CIMApp in $CIMtoUninstall) {
+
+        & $UninstallerScript -AppName "$CIMApp" -UninstallType "Remove-App-CIM" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+
+    }
+
+    # Regitry items to uninstall 
+    $RegistryItemsToUninstall = @(
+
+        "Office 16 Click-to-Run Extensibility Component",
+        "Aplicaciones de Microsoft 365 para empresas - es-mx",
+        "Microsoft 365 Apps for enterprise - en-us"
+
+    )
+
+    foreach ($RegApp in $RegistryItemsToUninstall) {
+
+        & $UninstallerScript -AppName "$RegApp" -UninstallType "All" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+
+    }
+
+    Pause
+
+
+    Write-Log "SCRIPT: $ThisFileName | Pre-existing Office uninstall completed successfully." "SUCCESS"
 
 } Catch {
 
@@ -268,7 +357,7 @@ Try {
     Try{
 
     # Grab organization custom registry values
-        Write-Log "Retrieving organization custom registry values..." "INFO2"
+        Write-Log "Retrieving organization custom registry values..." "INFO"
         $ReturnHash = & $OrgRegReader_ScriptPath #| Out-Null
 
         # Check the returned hashtable
@@ -279,16 +368,16 @@ Try {
         #Write-Log "Organization custom registry values retrieved:"
         foreach ($key in $ReturnHash.Keys) {
             $value = $ReturnHash[$key]
-            Write-Log "   $key : $value" "INFO2"
+            Write-Log "   $key : $value" "INFO"
         }    
 
         # Turn the returned hashtable into variables
-        Write-Log "Setting organization custom registry values as local variables..." "INFO2"
+        Write-Log "Setting organization custom registry values as local variables..." "INFO"
         foreach ($key in $ReturnHash.Keys) {
             Set-Variable -Name $key -Value $ReturnHash[$key] -Scope Local
-            Write-Log "Should be: $key = $($ReturnHash[$key])" "INFO2"
+            Write-Log "Should be: $key = $($ReturnHash[$key])" "INFO"
             $targetValue = Get-Variable -Name $key -Scope Local
-            Write-Log "Ended up as: $key = $($targetValue.Value)" "INFO2"
+            Write-Log "Ended up as: $key = $($targetValue.Value)" "INFO"
 
         }
     } Catch {
@@ -299,7 +388,7 @@ Try {
     ###
 
 
-    Write-Log "Now constructing URI for accessing private json..." "INFO2"
+    Write-Log "Now constructing URI for accessing private json..." "INFO"
 
     $parts = $CustomSetupZipBlobPath -split '/', 2
 
@@ -312,23 +401,23 @@ Try {
 
     #pause
 
-    Write-Log "Final values to be used to build ApplicationData.json URI:" "INFO2"
-    Write-Log "StorageAccountName: $StorageAccountName" "INFO2"
-    Write-Log "SasToken: $SasToken" "INFO2"
-    Write-Log "CustomSetupZip_ContainerName: $CustomSetupZip_ContainerName" "INFO2"
-    Write-Log "CustomSetupZip_BlobName: $CustomSetupZip_BlobName" "INFO2"
-    $CustomSetupZip_Uri = "https://$StorageAccountName.blob.core.windows.net/$CustomSetupZip_ContainerName/$CustomSetupZip_BlobName"+"?"+"$SasToken"
+    Write-Log "Final values to be used to build ApplicationData.json URI:" "INFO"
+    Write-Log "StorageAccountName: $StorageAccountName" "INFO"
+    Write-Log "SasToken: $SasToken" "INFO"
+    Write-Log "CustomSetupZip_ContainerName: $CustomSetupZip_ContainerName" "INFO"
+    Write-Log "CustomSetupZip_BlobName: $CustomSetupZip_BlobName" "INFO"
+    $CustomSetupZip_Uri = "https://$StorageAccountName.blob.core.windows.net/applications/$CustomSetupZip_ContainerName/$CustomSetupZip_BlobName"+"?"+"$SasToken"
 
     Try{
 
 
-        Write-Log "Beginning download..." "INFO2"
-        & $DownloadAzureBlobSAS_ScriptPath -WorkingDirectory $WorkingDirectory -BlobName $CustomSetupZip_BlobName -StorageAccountName $StorageAccountName -ContainerName $CustomSetupZip_ContainerName -SasToken $SasToken
+        Write-Log "Beginning download..." "INFO"
+        & $DownloadAzureBlobSAS_ScriptPath -WorkingDirectory $WorkingDirectory -BlobName $CustomSetupZip_BlobName -BlobSASurl $CustomSetupZip_Uri
         if($LASTEXITCODE -ne 0){Throw $LASTEXITCODE }
 
         ### Ingest the private JSON data
 
-        # Write-Log "Parsing Private JSON" "INFO2"
+        # Write-Log "Parsing Private JSON" "INFO"
         # $PrivateJSONpath = "$WorkingDirectory\TEMP\Downloads\$CustomSetupZip_BlobName"
         # $JSONpath = $PrivateJSONpath
 
@@ -404,13 +493,30 @@ if ($InstallMode -eq "WinGet") {
 
         # Run the setup.exe with appropriate arguments
         $SetupExePath = Join-Path -Path $ExtractedFolderPath -ChildPath "setup.exe"
-        $SetupArguments = "/configure $ConfigFileName"
 
-        & $SetupExePath $SetupArguments
+        # $SetupArguments = "/download $ConfigFileName"
+        Write-Log "SCRIPT: $ThisFileName | Running setup.exe with arguments: /download $ConfigFileName"
+        $output = & $SetupExePath /download $ConfigFileName
+        foreach ($line in $output) {Write-Log "OFFICE_SETUP: $line"}
+        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+        Write-Log ""
+        # $SetupArguments = "/configure $ConfigFileName"
+        Write-Log "SCRIPT: $ThisFileName | Running setup.exe with arguments: /configure $ConfigFileName"
+        $output = & $SetupExePath /configure $ConfigFileName
+        foreach ($line in $output) {Write-Log "OFFICE_SETUP: $line"}
+        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+        Write-Log ""
 
         Pop-Location
 
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+        # Test the installation
+
+        & $AppDetectionScriptPath -AppToDetect "Microsoft_Office" -DisplayName "Microsoft 365 Apps for enterprise - en-us" -WorkingDirectory $WorkingDirectory -DetectMethod "MSI_Registry"
+        if ($LASTEXITCODE -ne 0) { throw "Application detection failed" } else {
+
+            Write-Log "SCRIPT: $ThisFileName | Office installation verified successfully." "SUCCESS"
+
+        }
 
     } Catch {
 

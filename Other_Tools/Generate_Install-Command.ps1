@@ -34,7 +34,9 @@ Param(
     [String]$RepoURL,
     [String]$RepoNickName,
     [String]$RepoBranch="main",
-    [String]$TargetWorkingDirectory="C:\ProgramData\PowerDeploy"
+
+    [Parameter(Mandatory=$true)]
+    [String]$TargetWorkingDirectory
 
 )
 
@@ -56,9 +58,6 @@ $LogRoot = "$WorkingDirectory\Logs\Generator_Logs"
 # $ThisFileName = $MyInvocation.MyCommand.Name
 $LogPath = "$LogRoot\$ThisFileName.$DesiredFunction.$RepoNickName.$RepoBranch._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
-
-# $RepoRoot = "C:\ProgramData\PowerDeploy\$RepoNickName"
-# $WorkingDirectory = Split-Path -Path $RepoRoot -Parent
 
 
 #############
@@ -232,16 +231,16 @@ Function RegRemediationScript {
 
     Param(
 
-    $StorageAccountName = "powerdeploy",
+        $StorageAccountName = "powerdeploy",
 
-    $PrinterDataJSONpath = "printers/PrinterData.json",
-    $PrinterContainerSASkey,
+        $PrinterDataJSONpath = "printers/PrinterData.json",
+        $PrinterContainerSASkey,
 
-    $ApplicationDataJSONpath = "applications/ApplicationData.json",
-    $ApplicationContainerSASkey,
+        $ApplicationDataJSONpath = "applications/ApplicationData.json",
+        $ApplicationContainerSASkey,
 
-    $CustomRepoURL=$NULL,
-    $CustomRepoToken=$NULL
+        $CustomRepoURL=$NULL,
+        $CustomRepoToken=$NULL
 
     )
 

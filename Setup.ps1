@@ -1956,6 +1956,7 @@ Function Uninstall--Local-Application{
         Write-Log "Local applications found via CIM Win32_Product:"
         Write-Log ""
 
+        $UninstallMethod = "Remove-App-CIM"
         $HashTable = @{}
         $Counter = 1
         ForEach ($app in $Result) {
@@ -3635,7 +3636,8 @@ Write-Log ""
 # Warnings
 Write-Log ""
 # If this script is not being ran against C:ProgramData\PowerDeploy, it is going to lock down files in the root of the repo parent folder. Give a big fat warning. 
-if ($WorkingDirectory -notmatch "C:\ProgramData\PowerDeploy") {
+# $WorkingDirectory = "C:\ProgramData\PowerDeploy"
+if ($WorkingDirectory -notmatch "C:\\ProgramData\\PowerDeploy") {
     Write-Log "You are running this script from a non-standard location: $WorkingDirectory" "WARNING"
     Write-Log "This may cause permission issues with files created in the this folder. It is recommended to run this script from C:\ProgramData\PowerDeploy" "WARNING"
     Write-Log "" "WARNING"
