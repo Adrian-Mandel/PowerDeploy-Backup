@@ -164,9 +164,6 @@ $LogRoot = "$WorkingDirectory\Logs\Git_Logs"
 #$LogPath = "$LogRoot\$RepoNickName._Git_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $ThisFileName = $MyInvocation.MyCommand.Name
 
-$OfficialPublicRepoURL = "github.com/Santa-Cruz-COE/PowerDeploy"
-
-
 
 # Evaluate vars based on whether this run is just an update only
 if(!($UpdateLocalRepoOnly -eq $true)) {
@@ -508,6 +505,7 @@ if(Test-Path $LocalRepoPath){
 
         Write-Log "No .git folder. Attempting to add." "WARNING"
 
+
         # foreach ($line in $gitOutput) {
         #     Write-Log "GIT: $line"
         # }
@@ -516,27 +514,7 @@ if(Test-Path $LocalRepoPath){
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
         $gitOutput = git remote add origin $RepoUrl 2>&1 
-        ForEach ($line in $gitOutput) { 
-            
-            Write-Log "GIT: $line"
-
-            if $Line -like "*Could not read*" {
-                Write-Log "RepoURL could not resolve. Would you like to use '$OfficialPublicRepoURL' as your repository? (y/n): " -NoNewline
-                $userInput = Read-Host
-                if ($userInput -eq "y") {
-
-                    $RepoUrl = "$OfficialPublicRepoURL"
-                    $gitOutput = git remote set-url origin $RepoUrl 2>&1
-                    ForEach ($line in $gitOutput) { Write-Log "GIT: $line"  } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
-                
-                } else {
-                    Write-Log "++++++++++++++++++++++"
-                    Write-Log "SCRIPT: $ThisFileName | END | Could not add remote origin" "ERROR"
-                    Exit 1  
-                }
-            }
-    
-        } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
+        ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
         $gitOutput = git fetch origin 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
