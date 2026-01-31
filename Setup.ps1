@@ -3780,19 +3780,23 @@ Push-Location $RepoRoot
     Write-Log "Running Git pre-reqs" "INFO2"
     Write-Log "" "INFO2"
 
-
+    Write-Log "RUNNING GIT: git fetch"
     $gitOutput = git fetch 2>&1
     ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
 
+    Write-Log "RUNNING GIT: " "INFO2"
     $gitBranch = git rev-parse --abbrev-ref HEAD 2>&1
     ForEach ($line in $gitBranch) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
 
+    Write-Log "RUNNING GIT: git rev-parse HEAD"
     $gitCommit = git rev-parse HEAD 2>&1
     ForEach ($line in $gitCommit) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
 
+    Write-Log "RUNNING GIT: git remote get-url origin"
     $gitURL = git remote get-url origin 2>&1
     ForEach ($line in $gitURL) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
 
+    Write-Log "RUNNING GIT: git ls-remote origin $gitBranch"
     $gitCommitRemote = git ls-remote origin $gitBranch | ForEach-Object { $_.Split("`t")[0] } 2>&1
     ForEach ($line in $gitCommitRemote) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
     

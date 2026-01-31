@@ -454,7 +454,7 @@ Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX NOTE: PRE-CHECK is not logged"
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Checking if supplied paths are valid"
 # Test the paths
 
-if ($UpdateLocalRepoOnly -eq $True){
+if ($UpdateLocalRepoOnly -eq $True -or $InitOnly -eq $true -or $DotSourceOnly -eq $true) {
 
     $pathsToValidate = @{
         'WorkingDirectory' = $WorkingDirectory
@@ -562,7 +562,7 @@ if(Test-Path $LocalRepoPath){
         Exit 0
 
     }
-    
+
     Write-Log "Pulling latest changes..."
     try {
 
