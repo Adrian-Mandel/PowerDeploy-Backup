@@ -185,6 +185,8 @@ $SecurityManagerScriptPath = "$WorkingDirectory\$RepoNickName\Other_Tools\Securi
 # Registry change script path
 $RegistryChangeScriptPath = "$WorkingDirectory\$RepoNickName\Configurators\Configure-Registry.ps1"
 
+# Ensure RepoUrl starts with https://
+$RepoUrl = if ($RepoUrl -notlike "https://*") { "https://$RepoUrl" } else { $RepoUrl }
 
 # Insert token into RepoUrl if provided. NOT TESTED YET!
 # git clone https://oauth2:oauth-key-goes-here@github.com/username/repo.git
@@ -510,18 +512,23 @@ if(Test-Path $LocalRepoPath){
         #     Write-Log "GIT: $line"
         # }
 
+        Write-Log "RUNNING GIT: git init -b main"
         $gitOutput = git init -b main 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
+        Write-Log "RUNNING GIT: git remote add origin $RepoUrl"
         $gitOutput = git remote add origin $RepoUrl 2>&1 
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
+        Write-Log "RUNNING GIT: git fetch origin"
         $gitOutput = git fetch origin 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
+        Write-Log "RUNNING GIT: git reset --hard origin/main"
         $gitOutput = git reset --hard origin/main 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
         
+        Write-Log "RUNNING GIT: git branch --set-upstream-to=origin/main main"
         $gitOutput = git branch --set-upstream-to=origin/main main 2>&1
         ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $ThisFileName | END | Failed" "ERROR"; Exit 1 }
     
