@@ -100,6 +100,10 @@ param(
     
     [boolean]$UpdateLocalRepoOnly, # If true, script exits early after just updating
 
+    [boolean]$DotSourceOnly=$false, # If true, only dot sources the script without executing anything by exiting early
+
+    [boolean]$InitOnly=$false, # If true, only initializes the local repo without pulling or running anything. Exits early.
+
     [boolean]$StashChanges=$true, # If true, stashes any local changes before pulling latest commit
 
     [string]$ScriptPath, # Path from repo root to the target script
@@ -435,6 +439,13 @@ Function Set-GitSafeDirectory {
 ## Main ##
 ##########
 
+if ($DotSourceOnly -eq $true) {
+
+    Write-Host "DotSourceOnly is true; exiting script after dot sourcing." "INFO"
+    Exit 0
+
+}
+
 ## Pre-Check
 
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
@@ -545,6 +556,13 @@ if(Test-Path $LocalRepoPath){
 
     }
    
+    if ($InitOnly -eq $true) {
+
+        Write-Log "InitOnly is true; exiting script after initializing local repo." "INFO"
+        Exit 0
+
+    }
+    
     Write-Log "Pulling latest changes..."
     try {
 
