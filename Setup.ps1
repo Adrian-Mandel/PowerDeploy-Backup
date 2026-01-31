@@ -3768,7 +3768,20 @@ Push-Location $RepoRoot
 
     Write-Log "Dot sourcing Git Runner template script located at: $GitRunnerTemplate_ScriptPath" "INFO2"
 
-    if (!(Test-Path "$RepoRoot/.git")) {Write-Log "No local git repo initialized; will attempt to pull from $OfficialPublicRepoURL" "WARNING"; $TempURL = $OfficialPublicRepoURL} else {$TempURL = "ZZ"} # Dummy value to avoid errors if repo is not yet cloned. TODO: I should probably add the ability to select the DEV env too.
+    if (!(Test-Path "$RepoRoot/.git")) {
+        
+        Write-Log "No local git repo initialized; will attempt to pull from $OfficialPublicRepoURL" "WARNING"; 
+        
+        Write-Log "The repo WILL update if there is one available and if there are any pending changes they will be discarded. If this is not accepable then please exit the script now." 
+
+        Pause
+        
+        $TempURL = $OfficialPublicRepoURL
+    } else {
+
+        $TempURL = "ZZ" # Dummy value to avoid errors if repo is not yet cloned. TODO: I should probably add the ability to select the DEV env too.
+    
+    } 
     & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
         . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -InitOnly $True
 
