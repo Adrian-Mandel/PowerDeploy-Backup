@@ -598,7 +598,8 @@ Try{
     }
 } Catch {
     Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
-    Exit 1
+    Write-Log "The script will continue without these values, but installation will fail if the application doesn't exist in the public repo." "WARNING"
+    #Exit 1
 }
 
 
