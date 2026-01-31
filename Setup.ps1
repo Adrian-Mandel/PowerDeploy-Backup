@@ -3720,23 +3720,32 @@ Try{
     # Check the returned hashtable
     if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
         Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-        Exit 1
-    }
-    #Write-Log "Organization custom registry values retrieved:"
-    foreach ($key in $ReturnHash.Keys) {
-        $value = $ReturnHash[$key]
-        Write-Log "   $key : $value" "INFO2"
-    }    
 
-    # Turn the returned hashtable into variables
-    Write-Log "Setting organization custom registry values as local variables..." "INFO2"
-    foreach ($key in $ReturnHash.Keys) {
-        Set-Variable -Name $key -Value $ReturnHash[$key] -Scope Local
-        Write-Log "Should be: $key = $($ReturnHash[$key])" "INFO2"
-        $targetValue = Get-Variable -Name $key -Scope Local
-        Write-Log "Ended up as: $key = $($targetValue.Value)" "INFO2"
+        Write-Log "This is a critical error but the script can attempt to coninue anyway. This is expected behavior if you are running this script for the first time in your Organization. You can continue with setup from here." "WARNING"
+        Write-Log "If you wish to exit now, press Ctrl+C to stop the script. Otherwise, press Enter to continue at your own risk." "WARNING"
+        # Exit 1
+        Pause
+
+    } else {
+
+        #Write-Log "Organization custom registry values retrieved:"
+        foreach ($key in $ReturnHash.Keys) {
+            $value = $ReturnHash[$key]
+            Write-Log "   $key : $value" "INFO2"
+        }    
+
+        # Turn the returned hashtable into variables
+        Write-Log "Setting organization custom registry values as local variables..." "INFO2"
+        foreach ($key in $ReturnHash.Keys) {
+            Set-Variable -Name $key -Value $ReturnHash[$key] -Scope Local
+            Write-Log "Should be: $key = $($ReturnHash[$key])" "INFO2"
+            $targetValue = Get-Variable -Name $key -Scope Local
+            Write-Log "Ended up as: $key = $($targetValue.Value)" "INFO2"
+
+        }
 
     }
+
 } Catch {
     Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
     Exit 1
