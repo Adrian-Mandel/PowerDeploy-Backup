@@ -119,7 +119,7 @@ Function InstallApp-via-MSI-Private-AzureBlob {
         # Check the returned hashtable
         if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
             Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-            Exit 1
+            Throw "No data returned from Organization Registry Reader script!"
         }
         #Write-Log "Organization custom registry values retrieved:"
         foreach ($key in $ReturnHash.Keys) {
@@ -138,7 +138,9 @@ Function InstallApp-via-MSI-Private-AzureBlob {
         }
     } Catch {
         Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
-        Exit 1
+        Write-Log "The script will continue without these values, but installation will fail if the application doesn't exist in the public repo." "WARNING"
+
+        #Exit 1
     }
 
     # Construct blob URI
@@ -222,7 +224,7 @@ Function InstallApp-via-EXE-Private-AzureBlob {
         # Check the returned hashtable
         if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
             Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-            Exit 1
+            Throw "No data returned from Organization Registry Reader script!"
         }
         #Write-Log "Organization custom registry values retrieved:"
         foreach ($key in $ReturnHash.Keys) {
@@ -241,7 +243,9 @@ Function InstallApp-via-EXE-Private-AzureBlob {
         }
     } Catch {
         Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
-        Exit 1
+        Write-Log "The script will continue without these values, but installation will fail if the application doesn't exist in the public repo." "WARNING"
+
+        # Exit 1
     }
 
     # Construct blob URI
@@ -579,8 +583,9 @@ Try{
     # Check the returned hashtable
     if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
         Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-        Exit 1
+        Throw "No data returned from Organization Registry Reader script!"
     }
+    
     #Write-Log "Organization custom registry values retrieved:"
     foreach ($key in $ReturnHash.Keys) {
         $value = $ReturnHash[$key]
@@ -596,6 +601,7 @@ Try{
         Write-Log "Ended up as: $key = $($targetValue.Value)"
 
     }
+    
 } Catch {
     Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
     Write-Log "The script will continue without these values, but installation will fail if the application doesn't exist in the public repo." "WARNING"
