@@ -2675,7 +2675,9 @@ function Select-ApplicationFromJSON {
         }catch{
 
             Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | END | Accessing JSON from private share failed. Exit code returned: $_" "ERROR"
-            Exit 1
+            #Exit 1
+
+            Write-Log "Proceeding with only public JSON data." "WARNING"
             
         }
 
@@ -2706,14 +2708,22 @@ function Select-ApplicationFromJSON {
         Write-Log "Applications found from the private JSON:"
         Write-Log ""
         #$list = $jsonData.applications.ApplicationName 
-        Foreach ($item in $list2) {
-            Write-Log "$Counter - $item"
+        if ($list2 -ne $null -or $list2 -ne "") {
 
-            $HashTable.Add($Counter,$item)
+            Write-Log "COULD NOT ACCESS"
 
-            $Counter++
+        } else {
 
-            #$HashTable
+            Foreach ($item in $list2) {
+                Write-Log "$Counter - $item"
+
+                $HashTable.Add($Counter,$item)
+
+                $Counter++
+
+                #$HashTable
+            }
+
         }
         Write-Log "" 
         Write-Log "----------------------------------------------------------------"
