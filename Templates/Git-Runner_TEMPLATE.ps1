@@ -185,6 +185,8 @@ $SecurityManagerScriptPath = "$WorkingDirectory\$RepoNickName\Other_Tools\Securi
 # Registry change script path
 $RegistryChangeScriptPath = "$WorkingDirectory\$RepoNickName\Configurators\Configure-Registry.ps1"
 
+# Ensure RepoUrl starts with https://
+$RepoUrl = if ($RepoUrl -notlike "https://*") { "https://$RepoUrl" } else { $RepoUrl }
 
 # Insert token into RepoUrl if provided. NOT TESTED YET!
 # git clone https://oauth2:oauth-key-goes-here@github.com/username/repo.git
