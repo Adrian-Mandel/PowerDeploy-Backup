@@ -387,6 +387,56 @@ if($GetJSON -eq $True) {
             Write-Log "Driver Name: $DriverName"
             Write-Log "INF File: $INFFile"
             Write-Log "DriverZip: $DriverZip"
+            Write-Log "PresetDriver: $PresetDriver"
+
+            if ($PresetDriver -ne "" -and $PresetDriver -ne $null){
+                Write-Log "Pulling preset driver from JSON: $PresetDriver"
+                
+                Try { 
+
+                    Write-Log "Overriding driver vars with presets from JSON: $DriverName"
+
+                    $TempDriver = $jsonData.drivers | Where-Object { $_.PresetDriver -eq $PresetDriver }
+                    Set-VariablesFromObject -InputObject $TempDriver -Scope Script
+
+                    # $DriverName = $TempDriver.PresetDriver
+                    Write-Log "DriverName set to: $DriverName"
+                    # $INFFile = $TempDriver.Preset_INFFile
+                    Write-Log "INFFile set to: $INFFile"
+                    # $DriverZip = $TempDriver.Preset_DriverZip
+                    Write-Log "DriverZip set to: $DriverZip"
+
+
+                } catch {
+
+                    Write-Log "Could not find preset driver info in JSON for PresetDriver: $PresetDriver" "ERROR"
+                    Write-Log "Will attempt to use specified DriverName from JSON: $DriverName"
+                }
+
+
+
+            } else {
+                Write-Log "No PresetDriver found in JSON, using DriverName from JSON: $DriverName"
+            }
+
+            # Final check to make sure there is enough var data 
+
+            $ListOfVarsToCheck = @("$PortName","$PrinterIP","$DriverName","$INFFile","$DriverZip")
+
+            ForEach ($var in $ListOfVarsToCheck){
+
+                if ($var -eq "" -or $var -eq $null){
+
+                    Write-Log "Variable missing or empty after JSON parse: $var" "ERROR"
+                    Exit 1
+
+                } else {
+
+                    Write-Log "Variable confirmed present: $var"
+
+                }
+
+            }
 
 
         } else {
