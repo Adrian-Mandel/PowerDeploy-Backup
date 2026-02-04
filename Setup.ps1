@@ -98,52 +98,7 @@ $Global:TargetRepoNickName = ""
 $Global:TargetWorkingDirectory = ""
 $Global:DeployMode = "" 
 
-$ExamplePrinterJSON = @"
-{
-  "printers": [
-    {
-      "PrinterName": "OLD_Printer",
-      "PortName": "010.020.030.040",
-      "PrinterIP":"10.20.30.40",
-      "DriverName":"HP Universal Printing PCL 6",
-      "INFFile":"hpcu270u.inf",
-      "DriverZip":"printers/Drivers/HP/testDrivers.zip"
-    },
-	{
-      "PrinterName": "NEW_Printer",
-      "PortName": "010.020.030.041",
-      "PrinterIP":"10.20.30.41",
-      "DriverName":"HP Universal Printing PCL 6",
-      "INFFile":"hpcu345u.inf",
-      "DriverZip":"printers/Drivers/HP/HP_Universal_Printing_PCL_6/upd-pcl6-x64-7.9.0.26347.zip"
-    }
-}
-"@
-
-$ExampleAppJSON = @"
-{
-  "Applications": [
-  {
-    "ApplicationName": "Visual_Studio_Code",
-    "InstallMethod": "WinGet",
-    "WinGetID":"Microsoft.VisualStudioCode"
-  },
-  {
-    "ApplicationName": ".NET_3.5",
-    "InstallMethod": "Custom_Script",
-    "ScriptPathFromRepoRoot":"Installers\\Install-DotNET.ps1",
-    "CustomScriptArgs":"-Version \"3.5\""
-  },
-  {
-    "ApplicationName": "MSI-Private-AzureBlob_Example",
-    "InstallMethod": "MSI-Private-AzureBlob",
-    "MSIPathFromContainerRoot":"Adobe_Creative_Cloud/install.msi",
-    "DisplayName":"Adobe Creative Cloud",
-    "PreRequisites":".NET_3.5,Visual_Studio_Code"
-  },
-  ]
-}
-"@
+$ExamplePrinterJSON = get-content "$RepoRoot\Templates\PrinterData_TEMPLATE.json" | Out-String
 
 #################
 ### Functions ###
@@ -415,7 +370,7 @@ Function Set-URL {
             if ($confirmation -eq "y") {
                 $modeSelected = $true
             } else {
-                Write-Log "Let's try again to select the deployment mode."
+                Write-Log "Let's try again to select the deployment mode." "WARNING"
             }
 
         }
@@ -503,21 +458,20 @@ function Setup--Azure-Printer{
         Write-Log ""
 
     
-        Write-Log "Before proceeding, you need these 6 items figured out:"
+        Write-Log "These 7 items are required to set up a printer:"
         Write-Log ""
         Write-Log "     1 - Printer Name"
         Write-Log "     2 - Printer IP"
-        Write-Log "     3 - Printer Port - (Could be same as IP but formatted as full length eg 000.000.000.000)"
+        Write-Log "     3 - Printer Port (Could be same as IP but formatted as full length eg 000.000.000.000)"
+        Write-Log "     4 - Printer Driver (Select from list of PresetDrivers in your private JSON or enter a new one)"
         Write-Log ""
-        Write-Log "     > You may need to do research to find the correct driver for your printer model. Make sure to do testing:"
-        Write-Log "     4 - Printer Driver INF file"
-        Write-Log "     5 - Printer Driver Name"
+        Write-Log "     > Each print driver entry requires the following. If you need to enter a new Printer Driver, the script will help guide you."
+        Write-Log "     5 - Printer Driver INF file"
+        Write-Log "     6 - Printer Driver Name"
+        Write-Log "     7 - Printer Driver Zip Location in Azure Blob (after you upload the driver)"
         Write-Log ""
-        Write-Log "     > Finally, you will need to upload the printer driver files to Azure Blob Storage if the required driver is not there already. This script will assist with this part if you don't have it yet."
-        Write-Log "     6 - Printer Driver Zip Location in Azure Blob"
-        Write-Log ""
-        Write-Log "Save these details, as you will need them shortly."
-        Write-Log ""
+        # Write-Log "Save these details, as you will need them shortly."
+        # Write-Log ""
         Pause
         Write-Log ""
         Write-Log "Please enter the name of your printer:" "WARNING"
@@ -542,7 +496,7 @@ function Setup--Azure-Printer{
             # Select this storage account: $AzureStorageAccountName
             # Select "Containers" from the left menu
             # Select this container: $AzureBlobContainerName
-        Write-Log "Next we will navigate to your Azure Blob Storage container to create the required resources"
+        Write-Log "Next we will navigate to your Azure Blob Storage container to create the required resources (Driver and PrinterData)"
         Write-Log ""
         Write-Log "Instructions for navigating to your Azure Blob Storage container as follows:"
         Write-Log ""
@@ -562,7 +516,7 @@ function Setup--Azure-Printer{
 
     # Write-Log ""
 
-    Write-Log "Have you uploaded the required printer driver ZIP file to Azure Blob Storage?" "WARNING"
+    Write-Log "Have you uploaded the required printer driver ZIP file to Azure Blob Storage? If not you will be guided in the next step." "WARNING"
     $Answer2 = Read-Host "(y/n)"
 
     if ($Answer2 -ne "y" -and $Answer2 -ne "n") {
@@ -602,6 +556,13 @@ function Setup--Azure-Printer{
 
     Write-Log ""
 
+    # Write-Log "Have you updated your PrinterData.json file to include your new printer? If not you will be guided in the next step." "WARNING"
+    # $Answer2 = Read-Host "(y/n)"
+
+    # if ($Answer2 -ne "y" -and $Answer2 -ne "n") {
+    #     Write-Log "Invalid input. Please enter 'y' for yes or 'n' for no." "ERROR"
+    #     $Answer2 = Read-Host "(y/n)"
+    # }
 
     if ($Answer -eq "n") {
 
@@ -3157,6 +3118,7 @@ Function Select-PrinterFromJSON {
                 Write-Log "Printer Name: $PrinterName" "INFO2"
                 Write-Log "Port Name: $PortName" "INFO2"
                 Write-Log "Printer IP: $PrinterIP" "INFO2"
+                Write-Log "PresetDriver: $PresetDriver" "INFO2"
                 Write-Log "Driver Name: $DriverName" "INFO2"
                 Write-Log "INF File: $INFFile" "INFO2"
                 Write-Log "DriverZip: $DriverZip" "INFO2"
