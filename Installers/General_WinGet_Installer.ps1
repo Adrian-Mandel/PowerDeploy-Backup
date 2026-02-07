@@ -387,11 +387,11 @@ if($detectPreviousInstallation -eq $true){
         $cmd = "$winget"
         if ($null -eq $Version){
             
-            $args = "install --id $AppID -e --silent --accept-package-agreements --accept-source-agreements  --disable-interactivity --source winget"
+            $args = "install --id $AppID -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --scope machine"
 
         } else {
             
-            $args = "install --id $AppID --version $Version -e --silent --accept-package-agreements --accept-source-agreements  --disable-interactivity --source winget"
+            $args = "install --id $AppID --version $Version -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --scope machine"
 
         }
 
