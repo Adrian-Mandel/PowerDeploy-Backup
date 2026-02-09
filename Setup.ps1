@@ -3725,60 +3725,92 @@ Try{
 
 # Update this repo
 # TODO: This isn't working quite yet. Need to add auth too.
-
+$answer = "y"
 Push-Location $RepoRoot
 
     Write-Log "Dot sourcing Git Runner template script located at: $GitRunnerTemplate_ScriptPath" "INFO2"
 
     if (!(Test-Path "$RepoRoot/.git")) {
         
-        Write-Log "No local git repo initialized; will attempt to pull from $OfficialPublicRepoURL" "WARNING"; 
-        
-        Write-Log "The repo WILL update if there is one available and if there are any pending changes they will be discarded. If this is not accepable then please exit the script now." 
+        Write-Log "No local git repo initialized"
+        Write-Log "Would you like to connect this local repo to the official public repo at $OfficialPublicRepoURL and pull the latest changes?" "WARNING"
+        $answer = Read-Host "y/n"
 
-        Pause
-        
-        $TempURL = $OfficialPublicRepoURL
+        if ($answer -eq "y") {
+            Write-Log "If there are any pending changes, they will be discarded. Is that okay?" "WARNING"; 
+
+            $Answer = Read-Host "y/n"
+
+        } else {
+            Write-Log "Skipping git repo update." "WARNING"
+        }
+
     } else {
 
         $TempURL = "ZZ" # Dummy value to avoid errors if repo is not yet cloned. TODO: I should probably add the ability to select the DEV env too.
     
     } 
-    & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
-        . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -InitOnly $True
 
-        CheckAndInstall-Git
-        Set-GitSafeDirectory
+    if ($answer -eq "y") {
+        Write-Log "Attempting to connect and update local repo." "WARNING"
 
-    }
+        $TempURL = $OfficialPublicRepoURL
 
-    Write-Log "Running Git pre-reqs" "INFO2"
-    Write-Log "" "INFO2"
+        
+        & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
+            . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -InitOnly $True
 
-    Write-Log "RUNNING GIT: git fetch"
-    $gitOutput = git fetch 2>&1
-    ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+            # Not sure if these actually need to be ran here since the GitRunnerTemplate can handle it, but just in case, I'll leave them here for now. TODO: Clean up in the future.
+            CheckAndInstall-Git
+            Set-GitSafeDirectory
 
-    Write-Log "RUNNING GIT: " "INFO2"
-    $gitBranch = git rev-parse --abbrev-ref HEAD 2>&1
-    ForEach ($line in $gitBranch) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+        }
 
-    Write-Log "RUNNING GIT: git rev-parse HEAD"
-    $gitCommit = git rev-parse HEAD 2>&1
-    ForEach ($line in $gitCommit) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+  
 
-    Write-Log "RUNNING GIT: git remote get-url origin"
-    $gitURL = git remote get-url origin 2>&1
-    ForEach ($line in $gitURL) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+        Write-Log "Running Git pre-reqs" "INFO2"
+        Write-Log "" "INFO2"
 
-    Write-Log "RUNNING GIT: git ls-remote origin $gitBranch"
-    $gitCommitRemote = git ls-remote origin $gitBranch | ForEach-Object { $_.Split("`t")[0] } 2>&1
-    ForEach ($line in $gitCommitRemote) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
-    
+        Write-Log "RUNNING GIT: git fetch"
+        $gitOutput = git fetch 2>&1
+        ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+
+        Write-Log "RUNNING GIT: " "INFO2"
+        $gitBranch = git rev-parse --abbrev-ref HEAD 2>&1
+        ForEach ($line in $gitBranch) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+
+        Write-Log "RUNNING GIT: git rev-parse HEAD"
+        $gitCommit = git rev-parse HEAD 2>&1
+        ForEach ($line in $gitCommit) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+
+        Write-Log "RUNNING GIT: git remote get-url origin"
+        $gitURL = git remote get-url origin 2>&1
+        ForEach ($line in $gitURL) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+
+        Write-Log "RUNNING GIT: git ls-remote origin $gitBranch"
+        $gitCommitRemote = git ls-remote origin $gitBranch | ForEach-Object { $_.Split("`t")[0] } 2>&1
+        ForEach ($line in $gitCommitRemote) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+        
 
 
 
-    Write-Log "" "INFO2"
+        Write-Log "" "INFO2"
+
+    } else {
+
+        Write-Log "Skipping connecting and updating localgit repo." "WARNING"
+
+        Write-Log ""
+
+        Write-Log "Now installing git using git-runner script..."
+
+        & {
+
+            . $GitRunnerTemplate_ScriptPath -RepoURL "N/A" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -installGitOnly $True
+        
+        }
+
+    } 
 
 
 Clear
@@ -3844,6 +3876,19 @@ if ($gitCommit -eq $gitCommitRemote) {
     Write-Log ""
     Write-Log "Your local repo is already up to date with the latest version." "SUCCESS"
     Write-Log ""
+
+} elseif ($gitURL -eq "" -or $gitURL -eq $null -or $gitURL -eq "N/A") {
+
+    Write-Log ""
+    Write-Log "Skipping update work."
+    Write-Log ""
+
+    # Write-Log "No local commits found. This likely means you have not yet connected this local repo to the official public repo or a custom org repo." "WARNING"
+    # Write-Log "If you have not connected to a repo, it is recommended to connect to the official public repo at $OfficialPublicRepoURL to receive updates and contribute if desired." "WARNING"
+    # Write-Log ""
+    # Write-Log "Would you like to connect this local repo to the official public repo at $OfficialPublicRepoURL and pull the latest changes?" "WARNING"
+    # $answer = Read-Host "y/n"
+
 } else {
 
     Write-Log ""
