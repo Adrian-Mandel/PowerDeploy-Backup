@@ -166,7 +166,22 @@ Function TestWinGet {
 
         Write-Log "Running test..."
         #& $WinGet --info --accept-source-agreements| out-null
-        & $winget search "7zip.7zip" --accept-source-agreements | out-null # this function will force accept of source agreements
+
+
+        #& $winget search "7zip.7zip" --accept-source-agreements | out-null # this function will force accept of source agreements
+        
+        $WinGetSearchCommand = "& "+"'"+"$winget"+"'"+" search '7zip.7zip' --accept-source-agreements"
+        Start-Process powershell.exe -Wait -NoNewWindow -ArgumentList @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-Command',
+            $WinGetSearchCommand
+            )
+        
+        If ($LASTEXITCODE -ne 0) {
+            Throw "WinGet search command failed with exit code $LASTEXITCODE"
+        }
+
         Write-Log "WinGet working at target destination."
         Return $True
 
