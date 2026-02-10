@@ -104,6 +104,8 @@ param(
 
     [boolean]$InitOnly=$false, # If true, only initializes the local repo without pulling or running anything. Exits early.
 
+    [boolean]$installGitOnly=$false, # If true, only checks for Git and installs it if not found, then exits early.
+
     [boolean]$StashChanges=$true, # If true, stashes any local changes before pulling latest commit
 
     [string]$ScriptPath, # Path from repo root to the target script
@@ -502,7 +504,7 @@ Write-Log "++++++++++++++++++++++"
 Write-Log "Checking if Git is installed..."
 CheckAndInstall-Git
 
-if ($installGitOnly -eq true) {
+if ($installGitOnly -eq $true) {
 
     Write-Log "InstallGitOnly is true; exiting script after installing Git." "INFO"
     Exit 0
