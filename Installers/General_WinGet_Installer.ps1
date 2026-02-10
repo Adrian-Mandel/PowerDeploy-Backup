@@ -53,6 +53,9 @@ Param(
 
     [Parameter(Mandatory=$false)]
     $Version = $null,
+
+    [Parameter(Mandatory=$false)]
+    $ReChecks = 15, # Number of times to re-check for installation after install command is run. This is to catch cases where the install process returns before the installation is fully complete and detectable. 
     
     #[String]$VerboseLogs = $True,
     [int]$timeoutSeconds = 900 # Timeout in seconds (300 sec = 5 minutes) # THIS IS NOT BEING USED CURRENTLY
@@ -651,21 +654,45 @@ if($detectPreviousInstallation -eq $true){
 
         Write-Log "Running a final check to see if target app installed: $AppID $Version "
 
-        Start-Sleep -Seconds 10 # brief pause before re-checking
+        $Counter=$ReChecks
+        while($Counter -gt 0)
+        {
 
-        $detectInstallation2 = WinGet-Detect $AppID
+            Write-Log "Re-check attempts remaining: $Counter"
 
-        if($detectInstallation2 -eq $true) {
+            Write-Log "Pausing for 5 sec..."
 
-            Write-Log "Local installation detected. Installation successful of $AppID $Version" "SUCCESS"
-            $InstallSuccess = $true
 
-        } else {
+            Start-Sleep -Seconds 5 # brief pause before re-checking
 
-            Write-Log "Final check failed. No local installation of $AppID $Version detected." "ERROR"
 
+            $detectInstallation2 = WinGet-Detect $AppID
+
+            if($detectInstallation2 -eq $true) {
+
+                Write-Log "Local installation detected. Installation successful of $AppID $Version" "SUCCESS"
+                $InstallSuccess = $true
+
+            } else {
+
+                Write-Log "Final check failed. No local installation of $AppID $Version detected." "ERROR"
+
+            }
+
+            if ($InstallSuccess -eq $true) {
+                break
+            } else {
+                $Counter--
+            }
+
+            Write-Log ""
         }
 
+        if ($InstallSuccess -eq $false) {
+            Write-Log "All re-check attempts exhausted. No local installation of $AppID $Version detected." "ERROR"
+        }
+
+        Write-Log ""
     }
 
 }

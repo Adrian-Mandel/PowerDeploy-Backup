@@ -3681,23 +3681,26 @@ If( (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdent
     Write-Log ""
 
 } 
-
+Clear
 # Grab organization custom registry values and set as local variables
 Try{
 
 # Grab organization custom registry values
     Write-Log "Retrieving organization custom registry values..." "INFO2"
     $ReturnHash = & $OrgRegReader_ScriptPath #| Out-Null
+    Write-Log ""
 
     # Check the returned hashtable
     if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
         Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-
+        Write-Log ""
         Write-Log "This is a serious error in a fully developed PowerDeploy environement."
         Write-Log "However, if you are running this script for the first time from a download in a new environment, this may be expected if the registry values have not been set up yet."
         Write-Log ""
         Write-Log "You can continue with setup with just public data from here if you wish." "WARNING"
         Write-Log "If you want to exit now, press Ctrl+C to stop the script. Otherwise, press Enter to continue at your own risk." "WARNING"
+        Write-Log ""
+
         # Exit 1
         Pause
 
