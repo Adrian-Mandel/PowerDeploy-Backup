@@ -325,7 +325,7 @@ if ($AppName -eq $null -or $AppID -eq $null){
 
 
 Write-Log "Checking/Installing WinGet"
-$WinGet = & $InstallWinGetScript -ReturnWinGetPath:$True -WorkingDirectory $WorkingDirectory | Out-Null
+$WinGet = & $InstallWinGetScript -ReturnWinGetPath:$True -WorkingDirectory $WorkingDirectory | Select-Object -Last 1
 if ($LASTEXITCODE -eq 1 -or $WinGet -eq $null -or $WinGet -eq "" -or $WinGet -eq "Failure") { 
     
     Write-Log "Could not verify or install WinGet. Check the Install WinGet log." "ERROR"
@@ -533,7 +533,7 @@ if($detectPreviousInstallation -eq $true){
             # Reintstall WinGet
             # TODO: Make this into a function later
             Write-Log "Checking/Installing WinGet"
-            $WinGet = & $InstallWinGetScript -ReturnWinGetPath:$True -WorkingDirectory $WorkingDirectory | Out-Null
+            $WinGet = & $InstallWinGetScript -ReturnWinGetPath:$True -WorkingDirectory $WorkingDirectory | Select-Object -Last 1
 
             if ($LASTEXITCODE -eq 1 -or $WinGet -eq $null -or $WinGet -eq "" -or $WinGet -eq "Failure") { 
                 
