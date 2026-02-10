@@ -9,14 +9,29 @@ NOTES
 
 #>
 
+Param(
+
+    [string]$WorkingDirectory # If not inherited will default to local script directory structure
+
+)
+
 
 ## Vars
+
+$RepoRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
+if (-not $WorkingDirectory) {
+    $WorkingDirectory = Split-Path -Path $RepoRoot -Parent
+}
+
+$LogRoot = "$WorkingDirectory\Logs\Uninstaller_Logs"
+
+
 $Adobe64uninstaller = "Creative Cloud Uninstaller (x64).exe"
 $Adobe32uninstaller = "Creative Cloud Uninstaller (x86).exe"
 $AdobeAdminUninstaller = "AdobeUninstaller.exe" # https://helpx.adobe.com/enterprise/using/uninstall-creative-cloud-products.html#uninstall-tool
 $AdobeGenuineCleaner = "AdobeGenuineCleaner.exe" # https://helpx.adobe.com/enterprise/using/uninstall-creative-cloud-products.html#uninstall-tool
 
-$LogPath = "C:\temp\Adobe_Clean_Uninstall_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+$LogPath = "$LogRoot\Adobe_FullClean_Uninstall_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
 $AdobeFolderLocations = @(
     'C:\ProgramData',
@@ -244,7 +259,8 @@ Write-Log "===== Adobe Clean Uninstall Script Completed ====="
 Write-Log "Log file saved to: $LogPath"
 
 # Optional: Prompt for reboot
-$reboot = Read-Host "Adobe uninstall completed. Reboot recommended. Reboot now? (Y/N)"
+Write-Host "Adobe uninstall completed. Reboot recommended. Reboot now?"
+$reboot = Read-Host "(Y/N)"
 if ($reboot -eq 'Y' -or $reboot -eq 'y') {
     Write-Log "Initiating system reboot..."
     Restart-Computer -Force

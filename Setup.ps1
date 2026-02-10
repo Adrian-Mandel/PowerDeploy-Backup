@@ -88,6 +88,8 @@ $InstallWinGet_ScriptPath = "$RepoRoot\Installers\Install-WinGet.ps1"
 $AppDetect_ScriptPath = "$RepoRoot\Templates\Detection-Script-Application_TEMPLATE.ps1"
 # Path to Git Runner template
 $GitRunnerTemplate_ScriptPath = "$RepoRoot\Templates\Git-Runner_TEMPLATE.ps1"
+# Path to Adobe Uninstall Cleanup script
+$AdobeUninstallCleanup_ScriptPath = "$RepoRoot\Uninstallers\Adobe_Uninstaller_Suite\Uninstall-AllAdobeProducts-FullClean.ps1"
 
 $PublicJSONpath = "$RepoRoot\Templates\ApplicationData_TEMPLATE.json"
 
@@ -1702,7 +1704,7 @@ Function Install--Local-Printer{
 }   
 
 # DONE AND TESTED 1/14/26
-Function Uninstall--Local-Printer{
+Function Uninstall--Printer-Local{
 
     # Write-Log "Uninstalling a local printer function is still being developed." "ERROR"
     # Exit 1
@@ -1782,7 +1784,7 @@ Function Uninstall--Local-Printer{
 }
 
 # DONE AND TESTED 1/14/26
-Function Uninstall--Local-Application{
+Function Uninstall--Application-Local{
 
     # UNFINISHED
     Function JSON-zz-search-and-uninstall{
@@ -3611,6 +3613,15 @@ Function Setup--Azure-Registry_Remediations_For_Org{
     Write-Log ""
     Write-Log "That's all! Now give your target machines some time and monitor progress." "SUCCESS"
 
+
+
+}
+
+Function Uninstall--Adobe-Apps-FullCleanup{
+
+    Clear 
+
+    & $AdobeUninstallCleanup_ScriptPath -WorkingDirectory $WorkingDirectory
 
 
 }
