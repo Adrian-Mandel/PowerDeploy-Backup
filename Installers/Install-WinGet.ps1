@@ -154,7 +154,10 @@ function Test-PathSyntaxValidity {
 
 }
 
+# Simple tester to see if current $WinGet path is working. This is used throughout the script to test if WinGet is working at various stages and locations.
 Function TestWinGet {
+
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | Begin"
 
     Try {
 
@@ -166,13 +169,34 @@ Function TestWinGet {
 
         Write-Log "Running test..."
         #& $WinGet --info --accept-source-agreements| out-null
-        & $winget search "7zip.7zip" --accept-source-agreements | out-null # this function will force accept of source agreements
-        Write-Log "WinGet working at target destination."
+
+
+        #& $winget search "7zip.7zip" --accept-source-agreements | out-null # this function will force accept of source agreements
+        
+        $WinGetSearchCommand = "& "+"'"+"$winget"+"'"+" search '7zip.7zip' --accept-source-agreements"
+        Start-Process powershell.exe -Wait -NoNewWindow -ArgumentList @(
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-Command',
+            $WinGetSearchCommand
+            )
+        
+        If ($LASTEXITCODE -ne 0) {
+            Write-Log "WinGet search command failed with exit code $LASTEXITCODE" "ERROR"
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+            Throw "WinGet search command failed with exit code $LASTEXITCODE"
+        }
+
+        Write-Log "WinGet working at target destination: $WinGet"
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+
         Return $True
 
     } catch {
 
         Write-Log "WinGet not working. Error: $_" "WARNING"
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+
         Return "WinGet not working. Error: $_"
 
     }
@@ -180,7 +204,10 @@ Function TestWinGet {
 
 }
 
+# Looks for WinGet in various locations and tests if it works. Returns path to $WinGet if successful, "Failure" if not.
 Function Check-WinGet{
+
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | Begin"
 
     # TODO: I should turn this into sub-functions...
 
@@ -190,12 +217,19 @@ Function Check-WinGet{
     # Determine if/where WinGet is 
     
     # Default path
+    #NOTE: This is honestly not needed, the script is going to look for a more reliable location. Keeping it here just in case.
+    <#
         Write-Log "--- Checking if WinGet exists in PATH ---"
         Try {
 
             $winget = "winget.exe"
             $Test = TestWinGet
-            if ($Test -ne $True){Throw $Test}
+            if ($Test -ne $True){Throw $Test} else {
+
+                Write-Log "WinGet is present and working via PATH variable at: $winget"
+                $WinGet = $winget
+
+            }
 
 
         } Catch {
@@ -204,6 +238,8 @@ Function Check-WinGet{
             # Write-Log "Assumed that it is not installed. Proceeding to install."
             # $NeedToInstallWinGet = $True
         }
+
+    #>
 
     # Program Files location
         Write-Log "--- Checking if WinGet exists in Program Files location ---"
@@ -290,7 +326,6 @@ Function Check-WinGet{
                     Write-Log "Error received: $_"
 
                 }
-
 
 
             }
@@ -426,12 +461,13 @@ Function Check-WinGet{
         #>
 
     # Return failure if nothing works so far
-        if ($AppDataLocationSuccess -eq $False -and $ProgramFilesLocationSuccess -eq $False -and $RunAsSystemSuccess -eq $False){
 
-            Write-Log "No Successful intances of WinGet found." "WARNING"
-            Return "Failure"
+    if ($AppDataLocationSuccess -eq $False -and $ProgramFilesLocationSuccess -eq $False -and $RunAsSystemSuccess -eq $False){
 
-        }
+        Write-Log "No Successful intances of WinGet found." "WARNING"
+        Return "Failure"
+
+    }
 
     #Determine if running in system or user context
     Write-Log "--- Checking if script is being ran as System or User ---"
@@ -489,6 +525,9 @@ Function Check-WinGet{
         Write-Log "Running final check if winget works"
         # Final check?
         $Test = TestWinGet
+
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+
         if ($Test -ne $True){ 
 
             return "Failure"
@@ -501,6 +540,8 @@ Function Check-WinGet{
     } Catch {
 
         Write-Log "Could not get WinGet running in config for $context context. Error: $_" "WARNING"
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+
         return "Failure"
 
     }
@@ -694,12 +735,18 @@ Function Install-WinGet {
             Write-Log "Resolving path of WinGet"
             $WinGet = Check-WinGet
 
-            Write-Log "Testing method: $TargetMethod"
-            $result = Check-WinGet
-            If ($result -eq $True) {
-                $InstallSuccess -eq $True
+            # Shouldn't be needed, Check-WinGet runs a test
+            # Write-Log "Testing method: $TargetMethod"
+            # $result = test-WinGet
+            
+            If ($WinGet -eq "Failure") {
+
+                Throw "Check the logs for Check-WinGet for more details on why WinGet is not working after using method: $TargetMethod"
+
             } else {
-                Throw $Result
+
+                $InstallSuccess = $True
+
             }
 
         } Catch {

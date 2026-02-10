@@ -502,6 +502,13 @@ Write-Log "++++++++++++++++++++++"
 Write-Log "Checking if Git is installed..."
 CheckAndInstall-Git
 
+if ($installGitOnly -eq true) {
+
+    Write-Log "InstallGitOnly is true; exiting script after installing Git." "INFO"
+    Exit 0
+
+}
+
 # Add safe directory configuration
 Set-GitSafeDirectory 
 
