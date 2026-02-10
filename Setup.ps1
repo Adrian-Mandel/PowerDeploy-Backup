@@ -3693,8 +3693,11 @@ Try{
     if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
         Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
 
-        Write-Log "This is a critical error but the script can attempt to coninue anyway. This is expected behavior if you are running this script for the first time in your Organization. You can continue with setup from here." "WARNING"
-        Write-Log "If you wish to exit now, press Ctrl+C to stop the script. Otherwise, press Enter to continue at your own risk." "WARNING"
+        Write-Log "This is a serious error in a fully developed PowerDeploy environement."
+        Write-Log "However, if you are running this script for the first time from a download in a new environment, this may be expected if the registry values have not been set up yet."
+        Write-Log ""
+        Write-Log "You can continue with setup with just public data from here if you wish." "WARNING"
+        Write-Log "If you want to exit now, press Ctrl+C to stop the script. Otherwise, press Enter to continue at your own risk." "WARNING"
         # Exit 1
         Pause
 
