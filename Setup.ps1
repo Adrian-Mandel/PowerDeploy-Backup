@@ -3665,9 +3665,9 @@ Write-Log "Welcome! This script can be used to:"
 Write-Log " - Install a printer/app on your local machine"
 Write-Log " - Make a printer/app available for deployment via Azure/Intune."
 Write-Log ""
-Write-Log ""
-Write-Log "When you are ready we will begin by checking pre-requisites..."
-Write-Log ""
+# Write-Log ""
+# Write-Log "When you are ready we will begin by checking pre-requisites..."
+# Write-Log ""
 # Write-Log "NOTE: Instructions and required info will be in Cyan. Please note these lines."
 # Write-Log "NOTE: Progess feed and non required info will be in white. Feel free to ignore these lines." "INFO2"
 
@@ -3763,9 +3763,9 @@ Try{
 # Update this repo
 # TODO: This isn't working quite yet. Need to add auth too.
 $answer = "y"
+
 Push-Location $RepoRoot
 
-    Write-Log "Dot sourcing Git Runner template script located at: $GitRunnerTemplate_ScriptPath" "INFO2"
 
     if (!(Test-Path "$RepoRoot/.git")) {
         
@@ -3788,22 +3788,38 @@ Push-Location $RepoRoot
     
     } 
 
-    if ($answer -eq "y") {
-        Write-Log "Attempting to connect and update local repo." "WARNING"
+    if ($answer -ne "n") {
 
-        $TempURL = $OfficialPublicRepoURL
+        Write-Log "Dot sourcing Git Runner template script located at: $GitRunnerTemplate_ScriptPath" "INFO2"
 
-        
-        & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
-            . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -InitOnly $True
+        if ($answer -eq "y") {
 
-            # Not sure if these actually need to be ran here since the GitRunnerTemplate can handle it, but just in case, I'll leave them here for now. TODO: Clean up in the future.
-            CheckAndInstall-Git
-            Set-GitSafeDirectory
+            Write-Log "Attempting to connect and update local repo." "WARNING"
 
+            $TempURL = $OfficialPublicRepoURL
+
+            & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
+
+                . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -InitOnly $True
+
+            }
+
+        } else {
+
+            Write-Log "Checking/Installing Git and confirming safe directory for current repo." "WARNING"
+
+
+            & { # Run in a script block to avoid scope issues. Using ZZ as a dummy value for RepoURL since we are only updating local repo. Not the cleanest way to do this but it works for now. TODO: Clean up this method in the future.
+                
+                . $GitRunnerTemplate_ScriptPath -RepoURL "$TempURL" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -StashChanges $False -DotSourceOnly $True
+
+                # Not sure if these actually need to be ran here since the GitRunnerTemplate can handle it, but just in case, I'll leave them here for now. TODO: Clean up in the future.
+                CheckAndInstall-Git
+                Set-GitSafeDirectory
+
+            }
+   
         }
-
-  
 
         Write-Log "Running Git pre-reqs" "INFO2"
         Write-Log "" "INFO2"
@@ -3828,159 +3844,163 @@ Push-Location $RepoRoot
         $gitCommitRemote = git ls-remote origin $gitBranch | ForEach-Object { $_.Split("`t")[0] } 2>&1
         ForEach ($line in $gitCommitRemote) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
         
-
-
-
         Write-Log "" "INFO2"
 
-    } else {
+    } elseif ($answer -eq "n") {
 
-        Write-Log "Skipping connecting and updating localgit repo." "WARNING"
+        Write-Log "Skipping connecting and updating local git repo." "WARNING"
 
-        Write-Log ""
+        # Write-Log ""
 
-        Write-Log "Now installing git using git-runner script..."
+        # Write-Log "Now installing git using git-runner script..."
 
-        & {
+        # & {
 
-            . $GitRunnerTemplate_ScriptPath -RepoURL "N/A" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -installGitOnly $True
+        #     . $GitRunnerTemplate_ScriptPath -RepoURL "N/A" -RepoNickName $ThisRepoNickName -WorkingDirectory $WorkingDirectory -installGitOnly $True
         
+        # }
+
+    }
+
+
+    Clear
+
+    if ($answer -ne "n"){
+        # Determine the deploy mode
+        Try{
+
+            $GitURL_FORMATTED = ($GitURL -split 'github')[1]
+            $CustomRepoURL_FORMATTED = ($CustomRepoURL -split 'github')[1]
+
+        } catch {
+
+            Write-Log "Error attempted to format URL's for analyzing: $_" "ERROR"
+
+        }
+        # if $gitURL contains the CustomRepoURL, then this is a custom org deployment
+        if ($GitURL_FORMATTED -like "*$CustomRepoURL_FORMATTED*" -and $CustomRepoURL_FORMATTED -ne "" -and $CustomRepoURL_FORMATTED -ne $null) {
+
+            if ($gitBranch -eq "Dev"){
+
+                $PerceivedMode = "PRIVATE-DEVELOPMENT"
+            } elseif ($gitBranch -eq "Main" -or $gitBranch -eq "Master") {
+                $PerceivedMode = "PRODUCTION"
+            } else {
+                $PerceivedMode = "???"
+            }
+
+        } elseif ($gitURL -like "*$OfficialPublicRepoURL*") {
+
+            if ($gitBranch -eq "Dev"){
+
+                $PerceivedMode = "PUBLIC-DEVELOPMENT"
+            } elseif ($gitBranch -eq "Main" -or $gitBranch -eq "Master") {
+                $PerceivedMode = "PUBLIC-TESTING"
+            } else {
+                $PerceivedMode = "???"
+            }
+
+        } else {
+
+            $PerceivedMode = "???"
+
         }
 
-    } 
+
+        Write-Log "=================================="
+        Write-Log "============ UPDATES ============="
+        Write-Log "=================================="
+        Write-Log ""
+        Write-Log "Current Git Repo info:"
+        Write-Log ""
+        Write-Log "Operational Mode:                 $PerceivedMode"
+        Write-Log "Details:"
+        Write-Log "     URL:                         $gitURL"
+        Write-Log "     Branch:                      $gitBranch"
+        Write-Log "     Latest Commit on Remote:     $($gitCommitRemote)"
+        Write-Log "     Local Commit:                $gitCommit"
+        Write-Log "=================================="
 
 
-Clear
+        if ($gitCommit -eq $gitCommitRemote) {
 
-# Determine the deploy mode
-Try{
+            Write-Log ""
+            Write-Log "Your local repo is already up to date with the latest version." "SUCCESS"
+            Write-Log ""
 
-    $GitURL_FORMATTED = ($GitURL -split 'github')[1]
-    $CustomRepoURL_FORMATTED = ($CustomRepoURL -split 'github')[1]
+        } elseif ($gitURL -eq "" -or $gitURL -eq $null -or $gitURL -eq "N/A") {
 
-} catch {
+            Write-Log ""
+            Write-Log "Skipping update work."
+            Write-Log ""
 
-    Write-Log "Error attempted to format URL's for analyzing: $_" "ERROR"
+            # Write-Log "No local commits found. This likely means you have not yet connected this local repo to the official public repo or a custom org repo." "WARNING"
+            # Write-Log "If you have not connected to a repo, it is recommended to connect to the official public repo at $OfficialPublicRepoURL to receive updates and contribute if desired." "WARNING"
+            # Write-Log ""
+            # Write-Log "Would you like to connect this local repo to the official public repo at $OfficialPublicRepoURL and pull the latest changes?" "WARNING"
+            # $answer = Read-Host "y/n"
 
-}
-# if $gitURL contains the CustomRepoURL, then this is a custom org deployment
-if ($GitURL_FORMATTED -like "*$CustomRepoURL_FORMATTED*" -and $CustomRepoURL_FORMATTED -ne "" -and $CustomRepoURL_FORMATTED -ne $null) {
+        } else {
 
-    if ($gitBranch -eq "Dev"){
+            Write-Log ""
+            Write-Log "A newer version of this repo is available." "WARNING"
 
-        $PerceivedMode = "PRIVATE-DEVELOPMENT"
-    } elseif ($gitBranch -eq "Main" -or $gitBranch -eq "Master") {
-        $PerceivedMode = "PRODUCTION"
+
+            # Write-Log "NOTE: Operational mode indicates which version of the code this currently repo is using."
+            Write-Log "NOTE: If you have made local changes to any files in the repo, they will be stashed prior to updating." "WARNING"
+            Write-Log ""
+            Write-Log "Would you like to update the repo to the latest version?" "WARNING"
+
+            $Answer = Read-Host "y/n"
+            if ($Answer -ne "y" -and $Answer -ne "n") {
+                Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
+                $Answer = Read-Host "y/n"
+            }
+
+            If ($Answer -eq "y"){
+
+                
+
+                Write-Log "Updating local repo located at: $RepoRoot" "INFO2"
+
+                Write-Log "" "INFO2"
+
+
+                # Write-Log "Running Git Pull to update the repo..." "INFO2"
+
+                $Gitouput = git stash 2>&1
+                ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+
+                $gitOutput = git pull 2>&1
+                ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
+                
+                Write-Log "" "INFO2"
+            
+                Write-Log "Repo updated to the latest version."
+                #Pause
+
+                $Updated = $True
+                
+            } 
+
+        }
+
+        if ($Updated -eq $True) {
+
+            Write-Log ""
+            Write-Log "Since the repo was updated, it is recommended to re-run this setup script to ensure all components are up to date." "WARNING"
+            Write-Log ""
+            Write-Log "Exiting now. Please re-run the Setup.ps1 script." "WARNING"
+            Pause
+            Exit 0
+
+        }
+
     } else {
-        $PerceivedMode = "???"
+
+        Write-Log "Skipped git repo update." "WARNING"
+
     }
-
-} elseif ($gitURL -like "*$OfficialPublicRepoURL*") {
-
-    if ($gitBranch -eq "Dev"){
-
-        $PerceivedMode = "PUBLIC-DEVELOPMENT"
-    } elseif ($gitBranch -eq "Main" -or $gitBranch -eq "Master") {
-        $PerceivedMode = "PUBLIC-TESTING"
-    } else {
-        $PerceivedMode = "???"
-    }
-
-} else {
-
-    $PerceivedMode = "???"
-
-}
-
-
-Write-Log "=================================="
-Write-Log "============ UPDATES ============="
-Write-Log "=================================="
-Write-Log ""
-Write-Log "Current Git Repo info:"
-Write-Log ""
-Write-Log "Operational Mode:                 $PerceivedMode"
-Write-Log "Details:"
-Write-Log "     URL:                         $gitURL"
-Write-Log "     Branch:                      $gitBranch"
-Write-Log "     Latest Commit on Remote:     $($gitCommitRemote)"
-Write-Log "     Local Commit:                $gitCommit"
-Write-Log "=================================="
-
-
-if ($gitCommit -eq $gitCommitRemote) {
-
-    Write-Log ""
-    Write-Log "Your local repo is already up to date with the latest version." "SUCCESS"
-    Write-Log ""
-
-} elseif ($gitURL -eq "" -or $gitURL -eq $null -or $gitURL -eq "N/A") {
-
-    Write-Log ""
-    Write-Log "Skipping update work."
-    Write-Log ""
-
-    # Write-Log "No local commits found. This likely means you have not yet connected this local repo to the official public repo or a custom org repo." "WARNING"
-    # Write-Log "If you have not connected to a repo, it is recommended to connect to the official public repo at $OfficialPublicRepoURL to receive updates and contribute if desired." "WARNING"
-    # Write-Log ""
-    # Write-Log "Would you like to connect this local repo to the official public repo at $OfficialPublicRepoURL and pull the latest changes?" "WARNING"
-    # $answer = Read-Host "y/n"
-
-} else {
-
-    Write-Log ""
-    Write-Log "A newer version of this repo is available." "WARNING"
-
-
-    # Write-Log "NOTE: Operational mode indicates which version of the code this currently repo is using."
-    Write-Log "NOTE: If you have made local changes to any files in the repo, they will be stashed prior to updating." "WARNING"
-    Write-Log ""
-    Write-Log "Would you like to update the repo to the latest version?" "WARNING"
-
-    $Answer = Read-Host "y/n"
-    if ($Answer -ne "y" -and $Answer -ne "n") {
-        Write-Log "Invalid input. Please type 'y' to update or 'n' to skip." "ERROR"
-        $Answer = Read-Host "y/n"
-    }
-
-    If ($Answer -eq "y"){
-
-        
-
-        Write-Log "Updating local repo located at: $RepoRoot" "INFO2"
-
-        Write-Log "" "INFO2"
-
-
-        # Write-Log "Running Git Pull to update the repo..." "INFO2"
-
-        $Gitouput = git stash 2>&1
-        ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
-
-        $gitOutput = git pull 2>&1
-        ForEach ($line in $gitOutput) { Write-Log "GIT: $line" } ; if ($LASTEXITCODE -ne 0) {Write-Log "++++++++++++++++++++++"; Write-Log "SCRIPT: $LocalFileName | END | Failed" "ERROR"; Exit 1 }
-        
-        Write-Log "" "INFO2"
-    
-        Write-Log "Repo updated to the latest version."
-        #Pause
-
-        $Updated = $True
-        
-    } 
-
-}
-
-if ($Updated -eq $True) {
-
-    Write-Log ""
-    Write-Log "Since the repo was updated, it is recommended to re-run this setup script to ensure all components are up to date." "WARNING"
-    Write-Log ""
-    Write-Log "Exiting now. Please re-run the Setup.ps1 script." "WARNING"
-    Pause
-    Exit 0
-
-}
 
 Pop-Location 
 

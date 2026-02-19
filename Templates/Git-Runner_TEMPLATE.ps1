@@ -92,18 +92,15 @@ param(
     [string]$RepoNickName, # Name to call the local repo directory. Recommended name: REPO_(name of repo)
 
     [Parameter(Mandatory=$true)]
-    [string]$RepoUrl,
+    [string]$RepoUrl, # Will be ignored if dot source only or install git only is true. Link to the target repo. 
 
     [string]$RepoToken=$null, # Optional token for private repos. Not fully tested yet.
 
     [string]$RepoBranch="main", # Optional branch name. Default: main
     
     [boolean]$UpdateLocalRepoOnly, # If true, script exits early after just updating
-
     [boolean]$DotSourceOnly=$false, # If true, only dot sources the script without executing anything by exiting early
-
     [boolean]$InitOnly=$false, # If true, only initializes the local repo without pulling or running anything. Exits early.
-
     [boolean]$installGitOnly=$false, # If true, only checks for Git and installs it if not found, then exits early.
 
     [boolean]$StashChanges=$true, # If true, stashes any local changes before pulling latest commit
@@ -456,7 +453,7 @@ Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX NOTE: PRE-CHECK is not logged"
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Checking if supplied paths are valid"
 # Test the paths
 
-if ($UpdateLocalRepoOnly -eq $True -or $InitOnly -eq $true -or $DotSourceOnly -eq $true) {
+if ($UpdateLocalRepoOnly -eq $True -or $InitOnly -eq $true -or $DotSourceOnly -eq $true -or $installGitOnly -eq $true) {
 
     $pathsToValidate = @{
         'WorkingDirectory' = $WorkingDirectory
@@ -495,8 +492,13 @@ Write-Log "RepoToken: $RepoToken"
 Write-Log "RepoBranch: $RepoBranch"
 Write-Log "ScriptPath: $ScriptPath"
 Write-Log "WorkingDirectory: $WorkingDirectory"
-Write-Log "ScriptParams: $ScriptParams"
 Write-Log "UpdateLocalRepoOnly: $UpdateLocalRepoOnly"
+Write-Log "DotSourceOnly: $DotSourceOnly"
+Write-Log "InitOnly: $InitOnly"
+Write-Log "installGitOnly: $installGitOnly"
+Write-Log "StashChanges: $StashChanges"
+Write-Log "ScriptParams: $ScriptParams"
+
 Write-Log "++++++++++++++++++++++"
 
 ##
