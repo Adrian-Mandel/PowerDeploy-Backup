@@ -1319,6 +1319,26 @@ Function Setup--Azure-WindowsApp{
 
             Write-Log "Detect method set as MSI_Registry" "INFO2"
 
+        } elseif ($InstallMethod -eq "URL-EXE-Private-AzureBlob") {
+
+            ##
+            WRITE-LOG "UNDER CONSTRUCTION"
+            EXIT 1
+            ##
+
+            if ($DisplayName -eq $null -or $DisplayName -eq "") {
+                Write-Log "The application '$ApplicationName' does not have a Display Name specified in the JSON. Please update your JSON with the required fields and re-run this setup process for automatic generation." "ERROR"
+                Exit 1
+            }
+
+            [hashtable]$FunctionParams = @{
+                ApplicationName = $ApplicationName
+                DisplayName = $DisplayName
+                DetectMethod = "MSI_Registry"
+            }
+
+            Write-Log "Detect method set as MSI_Registry" "INFO2"
+
         } else {
 
             Write-Log "Unknown Install Method or missing Detect Method. Please correct this in the JSON and re-run this setup process." "ERROR"
@@ -1999,7 +2019,7 @@ Function Uninstall--Application-Local{
 
         Write-Log "Final selected app to uninstall: $TargetApp"
 
-        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType "Remove-App-CIM" -WorkingDirectory $WorkingDirectory
+        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType "Remove-App-CIM" -WorkingDirectory $WorkingDirectory -SkipWinGet $True
 
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Uninstall app script failed with exit code: $LASTEXITCODE" "ERROR"
@@ -2118,7 +2138,7 @@ Function Uninstall--Application-Local{
         
         #>
 
-        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType "All" -WorkingDirectory $WorkingDirectory -UninstallString_DisplayName $DisplayName
+        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType "All" -WorkingDirectory $WorkingDirectory -UninstallString_DisplayName $DisplayName -SkipWinGet $True
         
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Uninstall app script failed with exit code: $LASTEXITCODE" "ERROR"
@@ -2355,7 +2375,7 @@ Function Uninstall--Application-Local{
         Write-Log "You selected to uninstall app: $TargetApp using method: $UninstallMethod"
         Write-Log ""
 
-        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType $UninstallMethod -WorkingDirectory $WorkingDirectory
+        & $UninstallApp_ScriptPath -AppName $TargetApp -UninstallType $UninstallMethod -WorkingDirectory $WorkingDirectory -SkipWinGet $True
 
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Uninstall app script failed with exit code: $LASTEXITCODE" "ERROR"
@@ -2667,7 +2687,7 @@ function Select-ApplicationFromJSON {
         }
         Write-Log "" 
         Write-Log "----------------------------------------------------------------"
-        Write-Log "" 
+        Write-Log ""
         Write-Log "Applications found from the private JSON:"
         Write-Log ""
         #$list = $jsonData.applications.ApplicationName 
