@@ -79,7 +79,7 @@ Chrome, Remove-App-EXE-S
 Param(
 
     [Parameter(Mandatory=$true)]
-    [String]$AppName,
+    [String]$AppName, # Will be treated as a DisplayName or WinGetID if either are not supplied explicitly. Otherwise it's just a generic name for the app that is used in logging.
 
     [Parameter(Mandatory=$true)]
     [String]$UninstallType,
@@ -1880,7 +1880,7 @@ if($UninstallString_DisplayName -ne $null -and $UninstallString_DisplayName -ne 
 
 
 
-Write-Log "Final string for uninstall methods: $AppName"
+Write-Log "Final name string for uninstall methods: $AppName"
 
 Write-Log "Now beginning work."
 
@@ -1975,10 +1975,11 @@ if ($Methods -contains $UninstallType) {
 
 # TODO: Return a final ultra check using all methods
 Write-Log "SCRIPT: $ThisFileName | FINAL CHECK for app: $AppName using script: $AppDetectionScriptPath"
+
+
 if (!($packageFullName)) {
     $packageFullName = $null
 }
-
 
 
 $Counter = $FinalCheckRetryCount
@@ -1988,8 +1989,10 @@ $ThisuninstallSuccess = $False
 While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
     
     # NOTE: Using the external detection script for the final check, was having issues with the internal function and this is the direction we need to go anyways.
-    & $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
-
+    & {
+        $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
+    }
+    
     # if((Test-AllDetectionMethods -AppName $AppName) -eq $True){
     if($LASTEXITCODE -eq 0){
         

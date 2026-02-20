@@ -755,12 +755,19 @@ try {
         & $FullScriptPath
     }
 
-    if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+    if($LASTEXITCODE -eq 0){
+        Write-Log "Script executed successfully with exit code 0!" "SUCCESS"
+    } else {
+        Write-Log "Script execution failed with exit code: $LASTEXITCODE" "ERROR"
+        throw "$LASTEXITCODE"
+    }
+
+    # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
 
 }
 catch {
     $RunFail = $True
-    Write-Log "SCRIPT: $ThisFileName | | ERROR: Script execution failed: $_" "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | ERROR: Script execution failed: $_" "ERROR"
 }
 
 # Run the Security Manager to ensure strict ACLs on key folders # TODO: This may be overkill, may remove in the future.
