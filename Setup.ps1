@@ -2595,7 +2595,30 @@ function Select-ApplicationFromJSON {
 
     Write-Log "Parsing Public JSON" "INFO2"
 
-    $PublicJSONdata = ParseJSON -JSONpath $PublicJSONpath
+    # $PublicJSONdata = ParseJSON -JSONpath $PublicJSONpath
+
+
+        Write-Log "Parsing JSON" "INFO2"
+
+        # $LocalJSONpath = "$WorkingDirectory\TEMP\Downloads\$PrinterData_JSON_BlobName"
+
+        if (Test-Path $PublicJSONpath) {Write-Log "Local JSON found. Attempting to get content." "INFO2"} else { Write-Log "Local JSON not found" "ERROR"; throw "Local JSON not found" }
+        
+        
+        
+        
+        #$jsonData = Get-Content -Raw $LocalJSONpath | ConvertFrom-Json
+        try {
+            $jsonText = Get-Content -LiteralPath $PublicJSONpath -Raw -Encoding UTF8
+            $PublicJSONdata = $jsonText | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            Write-Log "ConvertFrom-Json failed: $($_.Exception.Message)" "ERROR"
+            throw $_
+        }
+
+
+
+
     $list1 = $PublicJSONdata.applications.ApplicationName
 
 
@@ -2650,10 +2673,35 @@ function Select-ApplicationFromJSON {
 
             Write-Log "Parsing Private JSON" "INFO2"
             $PrivateJSONpath = "$WorkingDirectory\TEMP\Downloads\$ApplicationData_JSON_BlobName"
-            $JSONpath = $PrivateJSONpath
+            
+            
+            # $JSONpath = $PrivateJSONpath
 
-            $PrivateJSONdata = ParseJSON -JSONpath $JSONpath
-            $list2 = $PrivateJSONdata.applications.ApplicationName 
+            # $PrivateJSONdata = ParseJSON -JSONpath $JSONpath
+
+            if (Test-Path $PrivateJSONpath) {Write-Log "Local JSON found. Attempting to get content." "INFO2"} else { Write-Log "Local JSON not found" "ERROR"; throw "Local JSON not found" }
+            
+            
+            #$jsonData = Get-Content -Raw $LocalJSONpath | ConvertFrom-Json
+            try {
+                $jsonText = Get-Content -LiteralPath $PrivateJSONpath -Raw -Encoding UTF8
+                Write-Log "Json text; $jsonText" "INFO2"
+                $PrivateJSONdata = $jsonText | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                Write-Log "ConvertFrom-Json failed: $($_.Exception.Message)" "ERROR"
+                throw $_
+            }
+
+            # Write-Log "Applications count: $($PrivateJSONdata.Applications.Count)" "INFO2"
+            # Write-Log "First app name: $($PrivateJSONdata.Applications[0].ApplicationName)" "INFO2"
+
+            $list2 = $PrivateJSONdata.Applications.ApplicationName 
+
+            # Write-Log "Application name count: $($list2.Count)" "INFO2"
+            # Write-Log "First app name: $($list2[0])" "INFO2"
+
+            # Pause
+
 
         }catch{
 
@@ -2691,7 +2739,7 @@ function Select-ApplicationFromJSON {
         Write-Log "Applications found from the private JSON:"
         Write-Log ""
         #$list = $jsonData.applications.ApplicationName 
-        if ($list2 -ne $null -or $list2 -ne "") {
+        if ($list2 -eq $null -or $list2 -eq "") {
 
             Write-Log "COULD NOT ACCESS"
 
@@ -3202,6 +3250,7 @@ function Set-VariablesFromObject {
     }
 }
 
+# DEPRECATED 2/19/26 - imbedded the same logic into the main functions during troubleshooting.
 Function ParseJSON {
 
     param(
@@ -3209,7 +3258,7 @@ Function ParseJSON {
     )
 
     Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START" "INFO2"
-    
+
     if (Test-Path $JSONpath) {
         Write-Log "Local JSON found. Attempting to get content." "INFO2"
     } else { 
@@ -3219,6 +3268,10 @@ Function ParseJSON {
     try {
         $jsonText = Get-Content -LiteralPath $JSONpath -Raw -Encoding UTF8
         $jsonData = $jsonText | ConvertFrom-Json -ErrorAction Stop
+
+        Write-Log "Successfully parsed JSON data from $JSONpath" "INFO2"
+
+        Write-Log "Perceived JSON data: $jsonData" "INFO2"
     } catch {
         Write-Log "ConvertFrom-Json failed: $($_.Exception.Message)" "ERROR"
         Throw $_
@@ -3241,7 +3294,7 @@ Function ParseJSON {
 
 }
 
-# DONE (still need testing) 1/14/26
+# DONE 1/14/26 - Thoroughly tested
 Function Setup--Azure-Registry_Remediations_For_Org{
 
     # Determine if this is a test or production deployment
@@ -3637,6 +3690,7 @@ Function Setup--Azure-Registry_Remediations_For_Org{
 
 }
 
+# DONE 2/19/26 - Keeping simple for now
 Function Uninstall--Adobe-Apps-FullCleanup{
 
     Clear 
