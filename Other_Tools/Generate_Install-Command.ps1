@@ -942,8 +942,13 @@ function UninstallApp {
 
     Param(
 
-        [hashtable]$FunctionParams # NOTE: This works for my intended use case but this with the param received snippet below are NOT done according to intent...
-
+        #[hashtable]$FunctionParams # NOTE: This works for my intended use case but this with the param received snippet below are NOT done according to intent...
+        $ApplicationName,
+        $UninstallType,
+        $Version,
+        $UninstallString_DisplayName,
+        $WinGetID
+        
     )
 
     Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START" -ForegroundColor Yellow
@@ -1099,6 +1104,13 @@ Write-Log ""
 Write-Log "--- Input Parameters ---"
 Foreach ($var in $PSBoundParameters.GetEnumerator()) {
     Write-Log "$($var.Key): $($var.Value)"
+}
+
+Write-Log ""
+Write-Log "Function Parameters Breakdown:"
+
+ForEach($Param in $FunctionParams.GetEnumerator()){
+    Write-Log "   $($Param.Key): $($Param.Value)"
 }
 Write-Log "--- End Input Parameters ---"
 Write-Log ""

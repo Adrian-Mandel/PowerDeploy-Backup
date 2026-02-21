@@ -1272,7 +1272,7 @@ Function Setup--Azure-WindowsApp{
 
         Write-Log "The application '$ApplicationName' does not have information for the DetectMethod var in the JSON to auto-generate install command and detection script. This script will automatically choose a detect method based on the install method." "WARNING"
 
-    
+        Write-Log ""
 
         if ($InstallMethod -eq "WinGet") {
 
@@ -1354,8 +1354,12 @@ Function Setup--Azure-WindowsApp{
 
     Write-Log "" "INFO2"
     Write-Log "Final method results:" "INFO2"
-    Write-Log "Install Method: $InstallMethod" "INFO2"
-    Write-Log "Detect Method: $DetectMethod" "INFO2"
+    Write-Log "   Install Method: $InstallMethod" "INFO2"
+    Write-Log "Function Paramters:" "INFO2"
+    # Write-Log "Detect Method: $DetectMethod" "INFO2"
+    Foreach ($key in $FunctionParams.Keys) {
+        Write-Log "   $key : $($FunctionParams[$key])" "INFO2"
+    }
     Write-Log "" "INFO2"
 
 
@@ -1400,6 +1404,7 @@ Function Setup--Azure-WindowsApp{
     }
     #>
 
+    
     # Call the generator; this now returns the hashtable we want
     $installResult = @{}
     $installResult = & $GenerateInstallCommand_ScriptPath `
@@ -1433,6 +1438,7 @@ Function Setup--Azure-WindowsApp{
     }
 
 
+
     ##  Create uninstall command ##
     Write-Log "" "INFO2"
     Write-Log "Generating uninstall command..." "INFO2"
@@ -1461,7 +1467,7 @@ Function Setup--Azure-WindowsApp{
 
         }
 
-    [hashtable]$FunctionParams = @{
+    [hashtable]$FunctionParams2 = @{
         ApplicationName = $ApplicationName
         UninstallType = $UninstallType
         Version = $Version
@@ -1469,7 +1475,15 @@ Function Setup--Azure-WindowsApp{
         UninstallString_DisplayName = $DisplayName
     }
 
-    $FunctionParams
+    Write-Log "" "INFO2"
+    Write-Log "Uninstall Command Function Paramters:" "INFO2"
+    # Write-Log "Detect Method: $DetectMethod" "INFO2"
+    Foreach ($key in $FunctionParams2.Keys) {
+        Write-Log "   $key : $($FunctionParams2[$key])" "INFO2"
+    }
+    Write-Log "" "INFO2"
+    Write-Log "Calling uninstall command generator function..." "INFO2"
+    Write-Log "" "INFO2"
 
     $ReturnHash3 = @{}
     $ReturnHash3 = & $GenerateInstallCommand_ScriptPath `
@@ -1478,7 +1492,7 @@ Function Setup--Azure-WindowsApp{
         -RepoNickName $Global:TargetRepoNickName `
         -RepoBranch $Global:RepoBranch `
         -TargetWorkingDirectory $Global:TargetWorkingDirectory `
-        -FunctionParams $FunctionParams
+        -FunctionParams $FunctionParams2
 
     # Check the returned hashtable
     if(($ReturnHash3 -eq $null) -or ($ReturnHash3.Count -eq 0)){
