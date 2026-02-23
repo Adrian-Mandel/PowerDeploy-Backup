@@ -12,7 +12,8 @@ Param(
     [string]$AppID,# = "Dell.CommandUpdate", # ENTER THE EXACT WINGET APP ID HERE
     [String]$DisplayName,# = "Dell Command Update", # ENTER THE DISPLAY NAME TO SEARCH FOR IN REGISTRY OR AppXProvisionedPackage HERE,
     [String]$AppXpackageName, # ENTER THE EXACT APPX PACKAGE NAME HERE
-
+    [String]$SkipWinGet = $False, # if true, WinGet functionality will be skipped. This is useful for end user sessions where winget is not accessible, for example when using an elevated session within a non admin user session.
+    [int]$FinalCheckRetryCount = 5,
     [String]$DetectMethod# = "WinGet" # Possible values: "WinGet", "MSI_Registry"
 
 )
@@ -1160,6 +1161,13 @@ if ($DetectMethod -eq "WinGet") {
     Write-Log "SCRIPT: $ThisFileName | Using ALL detection methods."
 
     $methods = Get-Command -CommandType Function -Name "Detect--*" | Select-Object -ExpandProperty Name
+
+    if ($SkipWinGet -eq $True){
+
+        Write-Log "SkipWinGet is set to true. Removing WinGet method from available detect methods." "WARNING"
+        $methods = $methods | Where-Object { $_ -ne "Detect--WinGetApplicationInstalled" }
+
+    }
     
 }else{
 
