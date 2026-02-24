@@ -15,8 +15,13 @@
   },
   {
     "ApplicationName": "Adobe_Creative_Cloud",
-    "InstallMethod": "WinGet",
-    "WinGetID": "Adobe.CreativeCloud"
+    "InstallMethod": "URL_Download",
+    "WinGetID": "Adobe.CreativeCloud",
+    "DownloadURL": "https://prod-rel-ffc-ccm.oobesaas.adobe.com/adobe-ffc-external/core/v1/wam/download?sapCode=KCCC&wamFeature=nuj-live",
+    "InstallArgs": "--mode=stub",
+    "DownloadType": "FILE",
+    "InstallType": "EXE",
+    "DisplayName": "Adobe Creative Cloud"
   },
   {
     "ApplicationName": "Adobe_Acrobat_Pro",
@@ -33,7 +38,7 @@
     "WinGetID": "Flameshot.Flameshot"
   },
   {
-    "ApplicationName": "7zip",
+    "ApplicationName": "7-Zip",
     "InstallMethod": "WinGet",
     "WinGetID": "7zip.7zip",
     "UninstallType": "Remove-App-WinGet"

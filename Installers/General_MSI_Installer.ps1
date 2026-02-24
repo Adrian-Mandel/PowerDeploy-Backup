@@ -1,6 +1,6 @@
 # General MSI Installer
 # Primarily written by Claude
-# Working from testing so far. Need to do more testing on ArgumentList. Also it may be capturing exit codes ineffectively.
+# Working from testing so far. Need to do more testing on InstallArgs. Also it may be capturing exit codes ineffectively.
 
 <#
 .SYNOPSIS
@@ -29,7 +29,7 @@
     Path to directory on the host machine that will be used to hold logs.
     Recommended: "C:\ProgramData\COMPANY_NAME"
 
-.PARAMETER ArgumentList
+.PARAMETER InstallArgs
     Custom MSI installation arguments.
     If not provided, defaults to: /i "[MSIPath]" /qn /norestart /l*v "[LogFile]"
     Example: "/i `"$MSIPath`" /qn /norestart INSTALLDIR=`"C:\CustomPath`""
@@ -81,7 +81,7 @@ Param(
     [String]$WorkingDirectory,
 
     [Parameter(Mandatory=$false)]
-    [String]$ArgumentList = $null,
+    [String]$InstallArgs = $null,
 
     [Parameter(Mandatory=$false)]
     [int]$TimeoutSeconds = 900,
@@ -489,8 +489,8 @@ if ($SkipVerification) {
     Write-Log "Skip Verification: TRUE"
 }
 
-if ($ArgumentList) {
-    Write-Log "Custom Arguments: $ArgumentList"
+if ($InstallArgs) {
+    Write-Log "Custom Arguments: $InstallArgs"
 } else {
     Write-Log "Arguments: Using default silent installation"
 }
@@ -537,7 +537,7 @@ if (-not (Test-MSIFile -Path $MSIPath)) {
 ## Perform installation
 Write-Log "Beginning MSI installation for: $AppName"
 
-$InstallSuccess = Install-MSIPackage -MSIPath $MSIPath -Arguments $ArgumentList -Timeout $TimeoutSeconds
+$InstallSuccess = Install-MSIPackage -MSIPath $MSIPath -Arguments $InstallArgs -Timeout $TimeoutSeconds
 
 ## Post-install verification
 if ($DisplayName -and -not $SkipVerification) {

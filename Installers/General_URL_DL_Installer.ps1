@@ -110,8 +110,26 @@ if($LASTEXITCODE -eq 0){
 
 # Download the application from a URL
 #$DownloadURL = $AppData.DownloadURL # Shouldn't be needed
-$FileNameFromURL = Split-Path $DownloadURL -Leaf
-$DownloadPath = "$WorkingDirectory\TEMP\Downloads\$TimeStamp.$FileNameFromURL"
+
+
+# $DownloadURL = "https://prod-rel-ffc-ccm.oobesaas.adobe.com/adobe-ffc-external/core/v1/wam/download?sapCode=KCCC&wamFeature=nuj-live"
+
+$Response = Invoke-WebRequest -Uri $DownloadURL -Method Head -UseBasicParsing
+$ContentDisposition = $Response.Headers['Content-Disposition']
+
+# Content-Disposition looks like: attachment; filename="CreativeCloudSetup.exe"
+if ($ContentDisposition -match 'filename="?([^"]+)"?') {
+    $FileName = $Matches[1]
+} else {
+    # Fallback to using the last segment of the URL if Content-Disposition header is not present or doesn't contain a filename
+    $FileName = Split-Path $DownloadURL -Leaf
+}
+
+Write-Host "Filename: $FileName"
+
+
+# $FileNameFromURL = Split-Path $DownloadURL -Leaf
+$DownloadPath = "$WorkingDirectory\TEMP\Downloads\$TimeStamp.$fileName"
 
 Write-Log "SCRIPT: $ThisFileName | Attempting to download application from URL: $DownloadURL"
 
@@ -159,6 +177,10 @@ If ($DownloadType -eq "ZIP"){
         Exit 1  
     }
 
+} else {
+
+    $InstallerPath = $DownloadPath
+
 }
 
 # Install the application using the appropriate method based on the file type (e.g., MSI, EXE)
@@ -202,7 +224,18 @@ if ($InstallType -eq "MSI"){
 
     Try {
 
-        & $EXEinstallScriptPath -EXEPath "$InstallerPath" -ArgumentList $InstallArgs -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
+        # & $EXEinstallScriptPath -EXEPath "$InstallerPath" -ArgumentList $InstallArgs -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
+
+
+        if ($InstallArgs) {
+            Write-Log "SCRIPT: $ThisFileName | Using custom install arguments: $InstallArgs"
+            & $EXEinstallScriptPath -EXEPath "$InstallerPath" -InstallArgs $InstallArgs -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
+
+        } else {
+            & $EXEinstallScriptPath -EXEPath "$InstallerPath" -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
+
+
+        }
 
         if($LASTEXITCODE -ne 0){Throw $LASTEXITCODE }
 
