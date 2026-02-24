@@ -1989,10 +1989,12 @@ $ThisuninstallSuccess = $False
 While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
     
     # NOTE: Using the external detection script for the final check, was having issues with the internal function and this is the direction we need to go anyways.
-    & {
-        $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
-    }
+    # & {
+    #     . $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
+    # }
     
+    & $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
+
     # if((Test-AllDetectionMethods -AppName $AppName) -eq $True){
     if($LASTEXITCODE -eq 0){
         
