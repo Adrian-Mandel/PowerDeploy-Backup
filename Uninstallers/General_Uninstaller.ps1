@@ -1992,6 +1992,11 @@ While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
     # & {
     #     . $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
     # }
+
+    Write-Log "Final check attempt number: $($FinalCheckRetryCount - $Counter + 1) out of $FinalCheckRetryCount." "WARNING"
+    Write-Log "Waiting $FinalCheckRetryDelaySeconds seconds to allow for changes to take effect..."
+    Start-Sleep -Seconds $FinalCheckRetryDelaySeconds
+
     
     & $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
 
@@ -2001,10 +2006,8 @@ While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
         Write-Log "Detect all method found the target app" "ERROR"
         $ThisuninstallSuccess = $False
 
-        Write-Log "Final check attempt number: $($FinalCheckRetryCount - $Counter + 1) out of $FinalCheckRetryCount." "WARNING"
 
-        Write-Log "Retrying in $FinalCheckRetryDelaySeconds seconds..."
-        Start-Sleep -Seconds $FinalCheckRetryDelaySeconds
+
         $Counter--
 
     } else {
@@ -2029,7 +2032,7 @@ Write-Log "========================================="
 
 
 Write-Log "Final Verdict:"
-If($uninstallSuccess -eq $True){
+If($uninstallSuccess -eq $True -and $ThisuninstallSuccess -eq $True){
 
     if ($neverInstalled -eq $True){
 
