@@ -1107,11 +1107,23 @@ Foreach ($var in $PSBoundParameters.GetEnumerator()) {
 }
 
 Write-Log ""
-Write-Log "Function Parameters Breakdown:"
 
-ForEach($Param in $FunctionParams.GetEnumerator()){
-    Write-Log "   $($Param.Key): $($Param.Value)"
+if($FunctionParams -eq $null -or $FunctionParams.Count -eq 0){
+
+    Write-Log "No function parameters provided."
+
+} else {
+
+    Write-Log "Function Parameters Breakdown:"
+    Write-Log ""
+
+    ForEach($Param in $FunctionParams.GetEnumerator()){
+        Write-Log "   $($Param.Key): $($Param.Value)"
+    }
+
 }
+
+Write-Log ""
 Write-Log "--- End Input Parameters ---"
 Write-Log ""
 

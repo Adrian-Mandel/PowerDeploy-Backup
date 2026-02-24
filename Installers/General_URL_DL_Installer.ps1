@@ -129,6 +129,14 @@ Write-Host "Filename: $FileName"
 
 
 # $FileNameFromURL = Split-Path $DownloadURL -Leaf
+
+if (!(Test-Path "$WorkingDirectory\TEMP\Downloads\")){
+
+    Write-Log "SCRIPT: $ThisFileName | Creating download directory at: $WorkingDirectory\TEMP\Downloads\"
+
+    New-Item -ItemType Directory -Path "$WorkingDirectory\TEMP\Downloads\" -Force | Out-Null
+}
+
 $DownloadPath = "$WorkingDirectory\TEMP\Downloads\$TimeStamp.$fileName"
 
 Write-Log "SCRIPT: $ThisFileName | Attempting to download application from URL: $DownloadURL"
