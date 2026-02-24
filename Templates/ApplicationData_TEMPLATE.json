@@ -22,7 +22,8 @@
     "DownloadType": "FILE",
     "InstallType": "EXE",
     "DisplayName": "Adobe Creative Cloud",
-    "DetectMethod": "MSI_Registry"
+    "DetectMethod": "MSI_Registry",
+    "UninstallType":"All"
   },
   {
     "ApplicationName": "Adobe_Acrobat_Pro",
@@ -32,7 +33,8 @@
     "InstallType": "MSI",
     "ExtractedPathFromDownloadRoot": "Adobe Acrobat/AcroPro.msi",
     "DisplayName": "Adobe Acrobat DC (64-bit)",
-    "DetectMethod": "MSI_Registry"
+    "DetectMethod": "MSI_Registry",
+    "UninstallType":"All"
   },
   {
     "ApplicationName": "FlameShot",
