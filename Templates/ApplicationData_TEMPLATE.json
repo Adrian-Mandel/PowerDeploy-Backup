@@ -20,8 +20,12 @@
   },
   {
     "ApplicationName": "Adobe_Acrobat_Pro",
-    "InstallMethod": "WinGet",
-    "WinGetID": "Adobe.Acrobat.Pro"
+    "InstallMethod": "URL_Download",
+    "DownloadURL": "https://trials.adobe.com/AdobeProducts/APRO/Acrobat_HelpX/win32/Acrobat_DC_Web_x64_WWMUI.zip",
+    "DownloadType": "ZIP",
+    "InstallType": "MSI",
+    "ExtractedPathFromDownloadRoot": "Adobe Acrobat/AcroPro.msi",
+    "DisplayName": "Adobe Acrobat DC (64-bit)"
   },
   {
     "ApplicationName": "FlameShot",

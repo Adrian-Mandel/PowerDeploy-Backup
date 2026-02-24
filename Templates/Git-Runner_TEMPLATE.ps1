@@ -696,14 +696,14 @@ if (!(Test-Path "$WorkingDirectory\TEMP")){
 # Create the working registry path if it doesn't exist
 try{
 
-    Write-Log "Ensuring working registry path exists: HKEY_LOCAL_MACHINE\SOFTWARE\PowerDeploy"
+    Write-Log "SCRIPT: $ThisFileName | Ensuring working registry path exists: HKEY_LOCAL_MACHINE\SOFTWARE\PowerDeploy"
 
     & $RegistryChangeScriptPath -WorkingDirectory $WorkingDirectory -KeyOnly $true -KeyPath "HKEY_LOCAL_MACHINE\SOFTWARE\PowerDeploy" -Function "Modify"
     if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
 
 } catch {
 
-    Write-Log "Failed to ensure working registry path exists: $_" "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | Failed to ensure working registry path exists: $_" "ERROR"
     Exit 1
 
 }
@@ -711,13 +711,13 @@ try{
 # Run the Security Manager to ensure strict ACLs on key folders
 try{
 
-    Write-Log "Running Security Manager to ensure strict ACLs on key folders..."
+    Write-Log "SCRIPT: $ThisFileName | Running Security Manager to ensure strict ACLs on key folders..."
     & $SecurityManagerScriptPath
     if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
 
 } catch {
 
-    Write-Log "Failed to run Security Manager: $_" "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | Failed to run Security Manager: $_" "ERROR"
     Exit 1
 
 }
@@ -743,8 +743,8 @@ if (-not (Test-Path $FullScriptPath)) {
 }
 
 # Run the script with parameters
-Write-Log "Running script: $ScriptPath"
-Write-Log "With parameters: $ScriptParams"
+Write-Log "SCRIPT: $ThisFileName | Running script: $ScriptPath"
+Write-Log "SCRIPT: $ThisFileName | With parameters: $ScriptParams"
 $RunFail = $False
 try {
     if ($ScriptParams) {
@@ -756,9 +756,9 @@ try {
     }
 
     if($LASTEXITCODE -eq 0){
-        Write-Log "Script executed successfully with exit code 0!" "SUCCESS"
+        Write-Log "SCRIPT: $ThisFileName | End script executed successfully with exit code 0!" "SUCCESS"
     } else {
-        Write-Log "Script execution failed with exit code: $LASTEXITCODE" "ERROR"
+        Write-Log "SCRIPT: $ThisFileName | End script execution failed with exit code: $LASTEXITCODE" "ERROR"
         throw "$LASTEXITCODE"
     }
 
@@ -767,20 +767,21 @@ try {
 }
 catch {
     $RunFail = $True
-    Write-Log "SCRIPT: $ThisFileName | ERROR: Script execution failed: $_" "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | ERROR: Script execution failed with exit code/message: $_" "ERROR"
+    $FailMessage = $_
 }
 
 # Run the Security Manager to ensure strict ACLs on key folders # TODO: This may be overkill, may remove in the future.
 try{
 
-    Write-Log "Re-running Security Manager to ensure strict ACLs on key folders after script execution..."
+    Write-Log "SCRIPT: $ThisFileName | Re-running Security Manager to ensure strict ACLs on key folders after script execution..."
     #Write-Log "Running Security Manager to ensure strict ACLs on key folders..."
     & $SecurityManagerScriptPath
     if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
 
 } catch {
 
-    Write-Log "Failed to run Security Manager: $_" "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | Failed to run Security Manager: $_" "ERROR"
     Exit 1
 
 }
@@ -793,7 +794,7 @@ if ($RunFail -eq $False){
 
 } else {
 
-    Write-Log "SCRIPT: $ThisFileName | END | Script failed: $FullScriptPath." "ERROR"
+    Write-Log "SCRIPT: $ThisFileName | END | Script failed: $FullScriptPath | Error Code/Message: $FailMessage" "ERROR"
     Exit 1
 
 }
