@@ -947,7 +947,8 @@ function UninstallApp {
         $UninstallType,
         $Version,
         $UninstallString_DisplayName,
-        $WinGetID
+        $WinGetID,
+        $UninstallArgs
         
     )
 
@@ -1000,6 +1001,7 @@ function UninstallApp {
     Write-Log "Version specified as: $Version"
     Write-Log "UninstallString_DisplayName specified as: $UninstallString_DisplayName"
     Write-Log "WinGetID specified as: $WinGetID"
+    Write-Log "UninstallArgs specified as: $UninstallArgs"
 
 
     If ($ApplicationName -eq $null -or $ApplicationName -eq ""){
@@ -1034,6 +1036,7 @@ function UninstallApp {
             WinGetID = "$WinGetID"
             UninstallString_DisplayName = "$UninstallString_DisplayName"
             WorkingDirectory = "$TargetWorkingDirectory"
+            UninstallArgs = "$UninstallArgs"
         }
 
 

@@ -1538,6 +1538,10 @@ Function Setup--Azure-WindowsApp{
         UninstallString_DisplayName = $DisplayName
     }
 
+    if($UninstallArgs -ne $null -and $UninstallArgs -ne ""){
+        $FunctionParams2.Add("UninstallArgs", $UninstallArgs)
+    }
+
     Write-Log "" "INFO2"
     Write-Log "Uninstall Command Function Paramters:" "INFO2"
     # Write-Log "Detect Method: $DetectMethod" "INFO2"

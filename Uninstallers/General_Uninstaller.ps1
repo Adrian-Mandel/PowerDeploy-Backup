@@ -100,6 +100,8 @@ Param(
 
     $SkipWinGet = $False, # if true, WinGet functionality will be skipped. This is useful for end user sessions where winget is not accessible, for example when using an elevated session within a non admin user session.
 
+    $UninstallArgs = $null, # This is for any extra uninstall args that may be needed for certain uninstall types. It will be passed to the Command-Runner function and then to the uninstall command as is. This allows for more flexibility and reduces the number of uninstall types needed, as extra args can be passed in as needed instead of having a seperate uninstall type for each unique set of args.
+
     # These can be explicitly passed if the AppName is seperate
     $WinGetID=$null,
     $UninstallString_DisplayName=$null
@@ -944,6 +946,77 @@ Function Remove-App-MSI-QN([String]$appName)
     }
 }
 
+# UNTESTED
+Function Remove-App-MSI-CUSTOM([String]$appName)
+{
+    Write-Log "========================================="
+    
+
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | Begin"
+    Write-Log "Target app: $appName"
+
+    if ($UninstallArgs -eq $null -or $UninstallArgs -eq ""){
+
+        Write-Log "No custom uninstall arguments supplied. Please set the UninstallArgs variable to include custom arguments for this method." "WARNING"
+        Write-Log "Skipping method." "WARNING"
+        Write-Log "========================================="
+
+        Return "Skipped"
+
+    } else {
+
+        Write-Log "Custom uninstall arguments supplied: $UninstallArgs. Continuing with method." "WARNING"
+    }
+
+    # Check for app
+    $appCheck = App-Detector -AppName $AppName -DetectMethod 'UninstallerString'
+    
+    # If App was found...
+    if($appCheck -ne $null){
+
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | Application Detected. Now running uninstaller for: $($appCheck.DisplayName)" "WARNING"
+
+        # Build uninstall string
+        $uninst = $appCheck.UninstallString + " $UninstallArgs"
+        $UninstallCommand_App = "cmd" 
+        $UninstallCommand_Args = "/c $uninst"
+
+        # Run uninstaller
+        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args -DetectMethod 'UninstallerString') -eq $true){
+
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned success!" "SUCCESS"
+            $uninstallSuccess = $True
+
+        } Else {
+
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned failure!" "ERROR"
+            $uninstallSuccess = $False
+
+        }
+    } else {
+
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | $appName is not installed on this computer!" "WARNING"
+        $uninstallSuccess = "NotFound"
+    }
+
+
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+    Write-Log "========================================="
+    if ($uninstallSuccess -eq $True){
+
+        Return $True
+
+    } elseif($uninstallSuccess -eq "NotFound") {
+
+        Return "NotFound"
+
+    } else {
+
+        Return $False
+
+    }
+}
+
 Function Remove-App-EXE-SILENT([String]$appName)
 {
 
@@ -1099,6 +1172,70 @@ Function Remove-App-EXE-S([String]$appName)
 
         # Build uninstall string with /S flag (capital S)
         $uninst = $appCheck.UninstallString + " /S"
+        $UninstallCommand_App = "cmd" 
+        $UninstallCommand_Args = "/c $uninst"
+
+        # Run uninstaller
+        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args -DetectMethod 'UninstallerString') -eq $true){
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned success!" "SUCCESS"
+            $uninstallSuccess = $True
+        } Else {
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned failure!" "ERROR"
+            $uninstallSuccess = $False
+        }
+    } else {
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | $appName is not installed on this computer!" "WARNING"
+        $uninstallSuccess = "NotFound"
+    }
+
+
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | End"
+    Write-Log "========================================="
+    if ($uninstallSuccess -eq $True){
+
+        Return $True
+
+    } elseif($uninstallSuccess -eq "NotFound") {
+
+        Return "NotFound"
+
+    } else {
+
+        Return $False
+
+    }
+}
+
+# UNTESTED
+Function Remove-App-EXE-CUSTOM([String]$appName)
+{
+
+    Write-Log "========================================="
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | Begin"
+    Write-Log "Target app: $appName"
+
+    if ($UninstallArgs -eq $null -or $UninstallArgs -eq ""){
+
+        Write-Log "No custom uninstall arguments supplied. Please set the UninstallArgs variable to include custom arguments for this method." "WARNING"
+        Write-Log "Skipping method." "WARNING"
+        Write-Log "========================================="
+
+        Return "Skipped"
+
+    } else {
+
+        Write-Log "Custom uninstall arguments supplied: $UninstallArgs. Continuing with method." "WARNING"
+    }
+
+    # Check for app
+    $appCheck = App-Detector -AppName $AppName -DetectMethod 'UninstallerString'
+    
+    # If App was found...
+    if($appCheck -ne $null){
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | Application Detected. Now running uninstaller for: $($appCheck.DisplayName)" "WARNING"
+
+        # Build uninstall string with custom flags defined in $UninstallArgs variable
+        $uninst = $appCheck.UninstallString + " $UninstallArgs"
         $UninstallCommand_App = "cmd" 
         $UninstallCommand_Args = "/c $uninst"
 
@@ -2005,8 +2142,6 @@ While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
         
         Write-Log "Detect all method found the target app" "ERROR"
         $ThisuninstallSuccess = $False
-
-
 
         $Counter--
 
