@@ -101,8 +101,8 @@ Param(
     $SkipWinGet = $False, # if true, WinGet functionality will be skipped. This is useful for end user sessions where winget is not accessible, for example when using an elevated session within a non admin user session.
 
     $UninstallArgs = $null, # This is for any extra uninstall args that may be needed for certain uninstall types. It will be passed to the Command-Runner function and then to the uninstall command as is. This allows for more flexibility and reduces the number of uninstall types needed, as extra args can be passed in as needed instead of having a seperate uninstall type for each unique set of args.
-    $UninstallCustomString = $null # This is for a fully custom uninstall string that will be ran as is. This is for maximum flexibility for any edge cases that may not be covered by the other uninstall types. 
-    
+    $UninstallCustomString = $null, # This is for a fully custom uninstall string that will be ran as is. This is for maximum flexibility for any edge cases that may not be covered by the other uninstall types. 
+
     # These can be explicitly passed if the AppName is seperate
     $WinGetID=$null,
     $UninstallString_DisplayName=$null
