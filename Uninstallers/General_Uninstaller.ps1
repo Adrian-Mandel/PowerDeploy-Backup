@@ -1822,15 +1822,21 @@ Function Remove-App-CustomString([String]$appName)
 
         Write-Log "Function: $($MyInvocation.MyCommand.Name) | Application Detected. Now running uninstaller with custom string for: $AppName" "WARNING"
 
-        $UninstallCommand_App = "cmd" 
-        $UninstallCommand_Args = "/c $UninstallCustomString"
+        # $UninstallCommand_App = "cmd" 
+        # $UninstallCommand_Args = "/c $UninstallCustomString"
 
-        # Run uninstaller
-        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args) -eq $true){
+        Write-Log "Running custom uninstall string: $UninstallCustomString"
+
+        # Bypassing command runner
+        $Uninstall = & cmd.exe /c "$UninstallCustomString"
+
+        #if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args) -eq $true){
+            
+        if($Uninstall -eq 0 -or $Uninstall -eq $True -or $LASTEXITCODE -eq 0){ 
             Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned success!" "SUCCESS"
             $uninstallSuccess = $True
         } Else {
-            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned failure!" "ERROR"
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner did not return success!" "ERROR"
             $uninstallSuccess = $False
         }
 
