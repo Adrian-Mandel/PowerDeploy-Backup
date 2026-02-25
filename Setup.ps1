@@ -1268,11 +1268,11 @@ Function Setup--Azure-WindowsApp{
 
     }
 
-    If ($DetectMethod -eq $null -or ($DetectMethod -eq "")) {
+    # If ($DetectMethod -eq $null -or ($DetectMethod -eq "")) {
 
-        Write-Log "The application '$ApplicationName' does not have information for the DetectMethod var in the JSON to auto-generate install command and detection script. This script will automatically choose a detect method based on the install method." "WARNING"
+        # Write-Log "The application '$ApplicationName' does not have information for the DetectMethod var in the JSON to auto-generate install command and detection script. This script will automatically choose a detect method based on the install method." "WARNING"
 
-        Write-Log ""
+        # Write-Log ""
 
         if ($InstallMethod -eq "WinGet") {
 
@@ -1284,10 +1284,25 @@ Function Setup--Azure-WindowsApp{
             [hashtable]$FunctionParams = @{
                 ApplicationName = $ApplicationName
                 AppID = $WinGetID
-                DetectMethod = "WinGet"
+
             }
 
-            Write-log "Detect method set as WinGet" "INFO2"
+            if ($DetectMethod -eq $null -or $DetectMethod -eq "") {
+
+                Write-Log "No DetectMethod specified in JSON, but sufficient info to auto-set it based on InstallMethod." "WARNING"
+
+                Write-Log "Detect method set as WinGet" "WARNING"
+
+                $DetectMethod = "WinGet"
+
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+
+            } else {
+
+                Write-Log "DetectMethod specified in JSON, using that for generation: $DetectMethod" "INFO2"
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+            }
+
 
         } elseif ($InstallMethod -eq "MSI-Private-AzureBlob") {
 
@@ -1299,10 +1314,23 @@ Function Setup--Azure-WindowsApp{
             [hashtable]$FunctionParams = @{
                 ApplicationName = $ApplicationName
                 DisplayName = $DisplayName
-                DetectMethod = "MSI_Registry"
             }
 
-            Write-Log "Detect method set as MSI_Registry" "INFO2"
+            if ($DetectMethod -eq $null -or $DetectMethod -eq "") {
+
+                Write-Log "No DetectMethod specified in JSON, but sufficient info to auto-set it based on InstallMethod." "WARNING"
+
+                Write-Log "Detect method set as MSI_Registry" "WARNING"
+
+                $DetectMethod = "MSI_Registry"
+
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+                
+            } else {
+
+                Write-Log "DetectMethod specified in JSON, using that for generation: $DetectMethod" "INFO2"
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+            }
 
         } elseif ($InstallMethod -eq "EXE-Private-AzureBlob") {
 
@@ -1314,17 +1342,26 @@ Function Setup--Azure-WindowsApp{
             [hashtable]$FunctionParams = @{
                 ApplicationName = $ApplicationName
                 DisplayName = $DisplayName
-                DetectMethod = "MSI_Registry"
             }
 
-            Write-Log "Detect method set as MSI_Registry" "INFO2"
+            if ($DetectMethod -eq $null -or $DetectMethod -eq "") {
 
-        } elseif ($InstallMethod -eq "URL-EXE-Private-AzureBlob") {
+                Write-Log "No DetectMethod specified in JSON, but sufficient info to auto-set it based on InstallMethod." "WARNING"
 
-            ##
-            WRITE-LOG "UNDER CONSTRUCTION"
-            EXIT 1
-            ##
+                Write-Log "Detect method set as MSI_Registry" "WARNING"
+
+                $DetectMethod = "MSI_Registry"
+
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+                
+            } else {
+
+                Write-Log "DetectMethod specified in JSON, using that for generation: $DetectMethod" "INFO2"
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+            }
+
+
+        } elseif ($InstallMethod -eq "URL_Download") {
 
             if ($DisplayName -eq $null -or $DisplayName -eq "") {
                 Write-Log "The application '$ApplicationName' does not have a Display Name specified in the JSON. Please update your JSON with the required fields and re-run this setup process for automatic generation." "ERROR"
@@ -1334,14 +1371,27 @@ Function Setup--Azure-WindowsApp{
             [hashtable]$FunctionParams = @{
                 ApplicationName = $ApplicationName
                 DisplayName = $DisplayName
-                DetectMethod = "MSI_Registry"
             }
 
-            Write-Log "Detect method set as MSI_Registry" "INFO2"
+            if ($DetectMethod -eq $null -or $DetectMethod -eq "") {
 
+                Write-Log "No DetectMethod specified in JSON, but sufficient info to auto-set it based on InstallMethod." "WARNING"
+
+                Write-Log "Detect method set as MSI_Registry" "WARNING"
+
+                $DetectMethod = "MSI_Registry"
+
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+                
+            } else {
+
+                Write-Log "DetectMethod specified in JSON, using that for generation: $DetectMethod" "INFO2"
+                $FunctionParams.Add("DetectMethod", $DetectMethod)
+            }
+            
         } else {
 
-            Write-Log "Unknown Install Method or missing Detect Method. Please correct this in the JSON and re-run this setup process." "ERROR"
+            Write-Log "Unknown Install Method or Detect Method. Please correct this in the JSON and re-run this setup process." "ERROR"
             Write-Log "Install Method: $InstallMethod" 
             Write-Log "Detect Method: $DetectMethod" 
 
@@ -1349,7 +1399,7 @@ Function Setup--Azure-WindowsApp{
 
         }
     
-    }
+    # }
 
 
     Write-Log "" "INFO2"
@@ -1453,6 +1503,11 @@ Function Setup--Azure-WindowsApp{
 
         # If InstallMethod is WinGet and UninstallType is not set, set UninstallType to WinGet by default
         if($InstallMethod -eq "WinGet" -and ($UninstallType -eq "" -or $UninstallType -eq $null)){
+
+            Write-Log "UninstallType not provided for application '$ApplicationName' in the JSON file." "WARNING"
+
+            Write-Log "Since the InstallMethod is WinGet, we will set the UninstallType to WinGet by default for uninstall command generation." "WARNING"
+
             $UninstallType = "WinGet"
         }
 
@@ -1460,12 +1515,20 @@ Function Setup--Azure-WindowsApp{
         # TODO: Swap out for a loop that asks the user to input the uninstall type instead of exiting?
         If ($UninstallType -eq "" -or $UninstallType -eq $null) {
 
-            Write-Log "The application '$ApplicationName' does not have sufficient information for the UninstallType var in the JSON to auto-generate uninstall command." "WARNING"
-            Write-Log "Please update your JSON with uninstall data and then run this script again" "WARNING"
-            
-            Exit 1
+            Write-Log "UninstallType not provided for application '$ApplicationName' in the JSON file." "WARNING"
 
-        }
+            # Write-Log "The application '$ApplicationName' does not have sufficient information for the UninstallType var in the JSON to auto-generate uninstall command." "WARNING"
+            # Write-Log "Please update your JSON with uninstall data and then run this script again" "WARNING"
+            Write-Log "" "WARNING"
+            Write-Log "We will set uninstall type to 'All' to attempt to generate an uninstall command, but please note this may not work correctly." "WARNING" 
+            Write-Log "" "WARNING"
+            Write-Log "It is highly recommended to update the JSON with the correct uninstall information and re-run this setup process for proper uninstall command generation." "WARNING"
+            
+            $UninstallType = "All"
+            Pause
+            # Exit 1
+
+        } 
 
     [hashtable]$FunctionParams2 = @{
         ApplicationName = $ApplicationName
@@ -1473,6 +1536,14 @@ Function Setup--Azure-WindowsApp{
         Version = $Version
         WinGetID = $WinGetID
         UninstallString_DisplayName = $DisplayName
+    }
+
+    if($UninstallArgs -ne $null -and $UninstallArgs -ne ""){
+        $FunctionParams2.Add("UninstallArgs", $UninstallArgs)
+    }
+
+    if($UninstallCustomString -ne $null -and $UninstallCustomString -ne ""){
+        $FunctionParams2.Add("UninstallCustomString", $UninstallCustomString)
     }
 
     Write-Log "" "INFO2"

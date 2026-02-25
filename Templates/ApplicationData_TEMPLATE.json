@@ -15,13 +15,26 @@
   },
   {
     "ApplicationName": "Adobe_Creative_Cloud",
-    "InstallMethod": "WinGet",
-    "WinGetID": "Adobe.CreativeCloud"
+    "InstallMethod": "URL_Download",
+    "WinGetID": "Adobe.CreativeCloud",
+    "DownloadURL": "https://prod-rel-ffc-ccm.oobesaas.adobe.com/adobe-ffc-external/core/v1/wam/download?sapCode=KCCC&wamFeature=nuj-live",
+    "InstallArgs": "--mode=stub",
+    "DownloadType": "FILE",
+    "InstallType": "EXE",
+    "DisplayName": "Adobe Creative Cloud",
+    "DetectMethod": "MSI_Registry",
+    "UninstallType":"All"
   },
   {
     "ApplicationName": "Adobe_Acrobat_Pro",
-    "InstallMethod": "WinGet",
-    "WinGetID": "Adobe.Acrobat.Pro"
+    "InstallMethod": "URL_Download",
+    "DownloadURL": "https://trials.adobe.com/AdobeProducts/APRO/Acrobat_HelpX/win32/Acrobat_DC_Web_x64_WWMUI.zip",
+    "DownloadType": "ZIP",
+    "InstallType": "MSI",
+    "ExtractedPathFromDownloadRoot": "Adobe Acrobat/AcroPro.msi",
+    "DisplayName": "Adobe Acrobat DC (64-bit)",
+    "DetectMethod": "MSI_Registry",
+    "UninstallType":"All"
   },
   {
     "ApplicationName": "FlameShot",
@@ -29,7 +42,7 @@
     "WinGetID": "Flameshot.Flameshot"
   },
   {
-    "ApplicationName": "7zip",
+    "ApplicationName": "7-Zip",
     "InstallMethod": "WinGet",
     "WinGetID": "7zip.7zip",
     "UninstallType": "Remove-App-WinGet"

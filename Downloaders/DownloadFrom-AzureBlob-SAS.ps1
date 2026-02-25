@@ -39,6 +39,7 @@ $ThisFileName = $MyInvocation.MyCommand.Name
 $LogRoot = "$WorkingDirectory\Logs\Download_Logs"
 $LogPath = "$LogRoot\$ThisFileName._$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 
+$ProgressPreference = 'SilentlyContinue' # for faster web invoke downloads without progress bars
 
 #################
 ### Functions ###

@@ -313,6 +313,10 @@ Write-Log "TmeoutSeconds: $timeoutSeconds"
 
 Write-Log "==========================================="
 
+Write-Log ""
+Write-Log "NOTE: WinGet logs generally stored here: %LOCALAPPDATA%\Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir"
+Write-Log ""
+
 ## Checks
 
 Write-Log "Checking script params"

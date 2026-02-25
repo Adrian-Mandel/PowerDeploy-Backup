@@ -947,7 +947,9 @@ function UninstallApp {
         $UninstallType,
         $Version,
         $UninstallString_DisplayName,
-        $WinGetID
+        $WinGetID,
+        $UninstallArgs,
+        $UninstallCustomString
         
     )
 
@@ -1000,6 +1002,7 @@ function UninstallApp {
     Write-Log "Version specified as: $Version"
     Write-Log "UninstallString_DisplayName specified as: $UninstallString_DisplayName"
     Write-Log "WinGetID specified as: $WinGetID"
+    Write-Log "UninstallArgs specified as: $UninstallArgs"
 
 
     If ($ApplicationName -eq $null -or $ApplicationName -eq ""){
@@ -1034,6 +1037,8 @@ function UninstallApp {
             WinGetID = "$WinGetID"
             UninstallString_DisplayName = "$UninstallString_DisplayName"
             WorkingDirectory = "$TargetWorkingDirectory"
+            UninstallArgs = "$UninstallArgs"
+            UninstallCustomString = "$UninstallCustomString"
         }
 
 
@@ -1107,11 +1112,23 @@ Foreach ($var in $PSBoundParameters.GetEnumerator()) {
 }
 
 Write-Log ""
-Write-Log "Function Parameters Breakdown:"
 
-ForEach($Param in $FunctionParams.GetEnumerator()){
-    Write-Log "   $($Param.Key): $($Param.Value)"
+if($FunctionParams -eq $null -or $FunctionParams.Count -eq 0){
+
+    Write-Log "No function parameters provided."
+
+} else {
+
+    Write-Log "Function Parameters Breakdown:"
+    Write-Log ""
+
+    ForEach($Param in $FunctionParams.GetEnumerator()){
+        Write-Log "   $($Param.Key): $($Param.Value)"
+    }
+
 }
+
+Write-Log ""
 Write-Log "--- End Input Parameters ---"
 Write-Log ""
 

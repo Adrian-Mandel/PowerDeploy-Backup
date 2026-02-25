@@ -38,7 +38,7 @@
     Path to directory on the host machine that will be used to hold logs.
     Recommended: "C:\ProgramData\PowerDeploy"
 
-.PARAMETER ArgumentList
+.PARAMETER InstallArgs
     Custom EXE installation arguments for silent install.
     If not provided, the script will attempt to detect the installer type and use appropriate defaults.
     
@@ -73,7 +73,7 @@
     Installs app_setup.exe with auto-detected silent arguments and verification
 
 .EXAMPLE
-    .\General_EXE_Installer.ps1 -EXEPath "C:\Temp\Downloads\setup.exe" -AppName "CustomApp" -DisplayName "Custom Application" -WorkingDirectory "C:\ProgramData\PowerDeploy" -ArgumentList "/VERYSILENT /NORESTART"
+    .\General_EXE_Installer.ps1 -EXEPath "C:\Temp\Downloads\setup.exe" -AppName "CustomApp" -DisplayName "Custom Application" -WorkingDirectory "C:\ProgramData\PowerDeploy" -InstallArgs "/VERYSILENT /NORESTART"
     Installs with custom Inno Setup arguments
 
 .EXAMPLE
@@ -118,7 +118,7 @@ Param(
     [String]$WorkingDirectory,
 
     [Parameter(Mandatory=$false)]
-    [String]$ArgumentList = $null,
+    [String]$InstallArgs = $null,
 
     [Parameter(Mandatory=$false)]
     [int]$TimeoutSeconds = 900,
@@ -431,7 +431,7 @@ function Install-EXEPackage {
             RedirectStandardError = $EXEErrorLog
         }
         
-        # Only add ArgumentList if we have arguments
+        # Only add InstallArgs if we have arguments
         if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
             $procParams['ArgumentList'] = $Arguments
         }
@@ -595,8 +595,8 @@ if ($SkipVerification) {
     Write-Log "Skip Verification: TRUE"
 }
 
-if ($ArgumentList) {
-    Write-Log "Custom Arguments: $ArgumentList"
+if ($InstallArgs) {
+    Write-Log "Custom Arguments: $InstallArgs"
 } else {
     Write-Log "Arguments: Will auto-detect based on installer type"
 }
@@ -656,19 +656,19 @@ if (-not (Test-EXEFile -Path $EXEPath)) {
 }
 
 ## Determine installation arguments
-if ([string]::IsNullOrWhiteSpace($ArgumentList)) {
+if ([string]::IsNullOrWhiteSpace($InstallArgs)) {
     Write-Log "No custom arguments provided - Attempting to create custom arguments based on installer type..."
     $installerType = Get-InstallerType -EXEPath $EXEPath
-    $ArgumentList = Get-DefaultSilentArguments -InstallerType $installerType
-    Write-Log "Using auto-detected arguments: $ArgumentList"
+    $InstallArgs = Get-DefaultSilentArguments -InstallerType $installerType
+    Write-Log "Using auto-detected arguments: $InstallArgs"
 } else {
-    Write-Log "Using provided custom arguments: $ArgumentList"
+    Write-Log "Using provided custom arguments: $InstallArgs"
 }
 
 ## Perform installation
 Write-Log "Beginning EXE installation for: $AppName"
 
-$InstallSuccess = Install-EXEPackage -EXEPath $EXEPath -Arguments $ArgumentList -Timeout $TimeoutSeconds -SuccessExitCodes $ExpectedExitCodes -WaitForChildren $WaitForProcess
+$InstallSuccess = Install-EXEPackage -EXEPath $EXEPath -Arguments $InstallArgs -Timeout $TimeoutSeconds -SuccessExitCodes $ExpectedExitCodes -WaitForChildren $WaitForProcess
 
 ## Post-install verification
 if ($DisplayName -and -not $SkipVerification) {

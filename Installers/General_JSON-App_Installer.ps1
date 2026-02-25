@@ -16,6 +16,7 @@ if($TargetAppName -eq "" -or $TargetAppName -eq $null){
     Exit 1
 }
 
+$ProgressPreference = 'SilentlyContinue' # for faster web invoke downloads without progress bars
 
 $RepoRoot = (Split-Path -Path $PSScriptRoot -Parent)
 
@@ -41,6 +42,8 @@ $DownloadAzureBlobSAS_ScriptPath = "$RepoRoot\Downloaders\DownloadFrom-AzureBlob
 $MSIinstallScriptPath = "$RepoRoot\Installers\General_MSI_Installer.ps1"
 
 $EXEInstallScriptPath = "$RepoRoot\Installers\General_EXE_Installer.ps1"
+
+$URL_DL_InstallerScriptPath = "$RepoRoot\Installers\General_URL_DL_Installer.ps1"
 
 ###############
 ## FUNCTIONS ##
@@ -104,7 +107,6 @@ Function InstallApp-via-MSI-Private-AzureBlob {
 
     # Download the custom MSI from Azure Blob Storage
     Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START | Downloading MSI from Private Azure Blob Storage..."
-
 
     $MSIPathFromContainerRoot
 
@@ -277,12 +279,12 @@ Function InstallApp-via-EXE-Private-AzureBlob {
 
     }catch{
 
-        Write-Log "Download MSI failed. Exit code returned: $_"
+        Write-Log "Download EXE failed. Exit code returned: $_"
         Exit 1
         
     }
     
-    # Install the MSI
+    # Install the EXE
 
     Write-Log "Calling General_EXE_Installer script to install $EXEname..."
 
@@ -290,7 +292,7 @@ Function InstallApp-via-EXE-Private-AzureBlob {
 
     Try {
 
-        & $EXEinstallScriptPath -EXEPath "$WorkingDirectory\TEMP\Downloads\$EXEPath2" -ArgumentList $InstallArgs -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
+        & $EXEinstallScriptPath -EXEPath "$WorkingDirectory\TEMP\Downloads\$EXEPath2" -InstallArgs $InstallArgs -WorkingDirectory $WorkingDirectory -AppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
 
         if($LASTEXITCODE -ne 0){Throw $LASTEXITCODE }
 
@@ -311,6 +313,16 @@ Function InstallApp-via-CustomScript-AzureBlob {
 }
 
 Function InstallApp-via-MSI-Online {
+
+}
+
+Function InstallApp-via-URLdownload {
+
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+
+    Write-Log "Calling script..."
+
+    & $URL_DL_InstallerScriptPath -WorkingDirectory $WorkingDirectory -DownloadURL $DownloadURL -DownloadType $DownloadType -ExtractedPathFromDownloadRoot $ExtractedPathFromDownloadRoot -InstallType $InstallType -InstallArgs $InstallArgs -TargetAppName $TargetAppName -DisplayName $DisplayName -ExpectedExitCodes $ExpectedExitCodes
 
 }
 
@@ -544,6 +556,11 @@ Function InstallRunner {
         Write-Log "Beginning installation via Custom Script..."
         InstallApp-via-CustomScript
 
+    } elseif($InstallMethod -eq "URL_Download"){
+
+        Write-Log "Beginning installation via URL download..."
+        InstallApp-via-URLdownload
+
     } else { # TODO: Make this "$InstallMethod" able to be the direct name of the function to call
 
         Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Unknown installation method specified: $InstallMethod" "ERROR"
@@ -560,8 +577,10 @@ Function InstallRunner {
 ##########
 
 # Ingest the registry data
-
+Write-Log ""
+Write-Log "================================="
 Write-Log "SCRIPT: $ThisFileName | START"
+Write-Log "================================="
 Write-Log ""
 
 if($TargetAppName -eq "" -or $TargetAppName -eq $null){
@@ -615,7 +634,7 @@ Write-Log "================================="
 
 # Check if the target application exists in either JSON and if it has prerequisites
 Write-Log "Checking for application $TargetAppName and its prerequisites..."
-InstallSomethingMain -AppNameToFind $TargetAppName -InstallIt $false
+InstallSomethingMain -AppNameToFind $TargetAppName -InstallIt $false # Setting this to false so it only retrieves the data and doesn't attempt to install yet
 
 Write-Log "================================="
 
