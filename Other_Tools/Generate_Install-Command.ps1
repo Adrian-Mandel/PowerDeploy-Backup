@@ -948,7 +948,8 @@ function UninstallApp {
         $Version,
         $UninstallString_DisplayName,
         $WinGetID,
-        $UninstallArgs
+        $UninstallArgs,
+        $UninstallCustomString
         
     )
 
@@ -1037,6 +1038,7 @@ function UninstallApp {
             UninstallString_DisplayName = "$UninstallString_DisplayName"
             WorkingDirectory = "$TargetWorkingDirectory"
             UninstallArgs = "$UninstallArgs"
+            UninstallCustomString = "$UninstallCustomString"
         }
 
 

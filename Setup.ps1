@@ -1542,6 +1542,10 @@ Function Setup--Azure-WindowsApp{
         $FunctionParams2.Add("UninstallArgs", $UninstallArgs)
     }
 
+    if($UninstallCustomString -ne $null -and $UninstallCustomString -ne ""){
+        $FunctionParams2.Add("UninstallCustomString", $UninstallCustomString)
+    }
+
     Write-Log "" "INFO2"
     Write-Log "Uninstall Command Function Paramters:" "INFO2"
     # Write-Log "Detect Method: $DetectMethod" "INFO2"

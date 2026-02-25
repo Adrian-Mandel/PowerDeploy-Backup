@@ -101,7 +101,8 @@ Param(
     $SkipWinGet = $False, # if true, WinGet functionality will be skipped. This is useful for end user sessions where winget is not accessible, for example when using an elevated session within a non admin user session.
 
     $UninstallArgs = $null, # This is for any extra uninstall args that may be needed for certain uninstall types. It will be passed to the Command-Runner function and then to the uninstall command as is. This allows for more flexibility and reduces the number of uninstall types needed, as extra args can be passed in as needed instead of having a seperate uninstall type for each unique set of args.
-
+    $UninstallCustomString = $null # This is for a fully custom uninstall string that will be ran as is. This is for maximum flexibility for any edge cases that may not be covered by the other uninstall types. 
+    
     # These can be explicitly passed if the AppName is seperate
     $WinGetID=$null,
     $UninstallString_DisplayName=$null
@@ -1792,6 +1793,55 @@ Function Remove-App-MSI-I-QN([String]$appName)
     
 
 }
+
+# UNTESTED
+Function Remove-App-CustomString([String]$appName)
+{
+    Write-Log "========================================="
+    Write-Log "Function: $($MyInvocation.MyCommand.Name) | Begin"
+    Write-Log "Target app: $appName"
+
+    if ($UninstallType -eq 'All' -or $UninstallCustomString -eq $null -or $UninstallCustomString -eq ""){
+
+        Write-Log "SKIPPING METHOD" "WARNING"
+        Write-Log "========================================="
+
+        Return "Skipped"
+
+    } else {
+
+        Write-Log "Method requested anyways, continuing" "WARNING"
+    }
+
+
+    # Run detector to confirm app exists before trying to uninstall with custom string
+    & $AppDetectionScriptPath -AppToDetect $AppName -DetectMethod 'All' -AppID $WinGetID -DisplayName $UninstallString_DisplayName -AppXpackageName $packageFullName -WorkingDirectory $WorkingDirectory -SkipWinGet $SkipWinGet
+    $detectionResult = $LASTEXITCODE
+
+    if($detectionResult -eq 0){
+
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | Application Detected. Now running uninstaller with custom string for: $AppName" "WARNING"
+
+        $UninstallCommand_App = "cmd" 
+        $UninstallCommand_Args = "/c $UninstallCustomString"
+
+        # Run uninstaller
+        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args "") -eq $true){
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned success!" "SUCCESS"
+            $uninstallSuccess = $True
+        } Else {
+            Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned failure!" "ERROR"
+            $uninstallSuccess = $False
+        }
+
+    }
+    else{
+        Write-Log "Function: $($MyInvocation.MyCommand.Name) | $appName is not installed on this computer!" "WARNING"
+    }
+
+
+}
+    ##  
 
 <#
 Function Remove-AppxPackage([String]$appName){
