@@ -1826,7 +1826,7 @@ Function Remove-App-CustomString([String]$appName)
         $UninstallCommand_Args = "/c $UninstallCustomString"
 
         # Run uninstaller
-        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args "") -eq $true){
+        if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args) -eq $true){
             Write-Log "Function: $($MyInvocation.MyCommand.Name) | Uninstall runner returned success!" "SUCCESS"
             $uninstallSuccess = $True
         } Else {
