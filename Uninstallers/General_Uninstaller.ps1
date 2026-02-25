@@ -1825,10 +1825,14 @@ Function Remove-App-CustomString([String]$appName)
         # $UninstallCommand_App = "cmd" 
         # $UninstallCommand_Args = "/c $UninstallCustomString"
 
-        Write-Log "Running custom uninstall string: $UninstallCustomString"
+        # Write-Log "Running custom uninstall string: $UninstallCustomString"
 
-        # Bypassing command runner
-        $Uninstall = cmd /c $UninstallCustomString#.replace("`"","") # Removing quotes if they exist, as they can cause issues when running the command this way. Command runner handles quotes properly, but since we're bypassing it we need to remove them here to avoid issues.
+        # # Bypassing command runner
+        # $Uninstall = cmd /c $UninstallCustomString#.replace("`"","") # Removing quotes if they exist, as they can cause issues when running the command this way. Command runner handles quotes properly, but since we're bypassing it we need to remove them here to avoid issues.
+
+        $CmdString = $UninstallCustomString.Replace("'", '"')
+        Write-Log "Running custom uninstall string: $CmdString"
+        $Uninstall = cmd /c $CmdString
 
         #if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args) -eq $true){
             
