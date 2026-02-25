@@ -1828,7 +1828,7 @@ Function Remove-App-CustomString([String]$appName)
         Write-Log "Running custom uninstall string: $UninstallCustomString"
 
         # Bypassing command runner
-        $Uninstall = & $UninstallCustomString.replace("`"","") # Removing quotes if they exist, as they can cause issues when running the command this way. Command runner handles quotes properly, but since we're bypassing it we need to remove them here to avoid issues.
+        $Uninstall = cmd /c $UninstallCustomString#.replace("`"","") # Removing quotes if they exist, as they can cause issues when running the command this way. Command runner handles quotes properly, but since we're bypassing it we need to remove them here to avoid issues.
 
         #if((Command-Runner -UninstallCommand_App $UninstallCommand_App -UninstallCommand_Args $UninstallCommand_Args) -eq $true){
             
