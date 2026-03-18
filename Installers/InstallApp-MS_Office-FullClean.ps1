@@ -5,9 +5,11 @@ Param(
     [Parameter(Mandatory=$true)]
     [String]$WorkingDirectory,
 
-    $CustomSetupZipBlobPath, # if this is not supplied the WinGet will be used
+    #$CustomSetupZipBlobPath, # if this is not supplied the WinGet will be used
 
-    $ConfigFileName = "configuration.xml",
+    # $ConfigFileName = "configuration.xml",
+
+    [String]$IncludedApps = "Excel,Word,PowerPoint", # Can be 'All'
     
     #[String]$VerboseLogs = $True,
     [int]$timeoutSeconds = 900 # Timeout in seconds (300 sec = 5 minutes)
@@ -45,6 +47,42 @@ $OrgRegReader_ScriptPath = "$RepoRoot\Templates\OrganizationCustomRegistryValues
 $AppDetectionScriptPath = "$RepoRoot\Templates\Detection-Script-Application_TEMPLATE.ps1"
 
 $LogPath = "$LogRoot\$ThisFileName.Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+# Process the excluded apps
+[Array]$TotalPossibleApps='Excel', 'Word', 'PowerPoint', 'Access', 'Groove', 'Lync', 'OneDrive', 'OneNote', 'Outlook', 'Publisher', 'Teams', 'Bing'
+[Array]$ExcludedApps
+$IncludedApps = $IncludedApps -replace ' ',''
+$IncludedApps = $IncludedApps -Split ','
+
+if ($IncludedApps -eq 'All') {
+
+    $ExlcudedApps = $null
+
+} else {
+
+    ForEach ($PossibleApp in $TotalPossibleApps){
+
+        $Match = $False
+
+        ForEach ($IncludedApp in $IncludedApps){
+
+            if ($PossibleApp -Match $IncludedApp){
+
+                $Match = $True
+
+            }
+
+        }
+
+        if ($Match -eq $False){
+
+            $ExlcudedApps += $PossibleApp
+
+        }
+
+    }
+
+}
 
 #################
 ### Functions ###
@@ -219,28 +257,35 @@ Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Path validation successful - all exist"
 
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
-If($CustomSetupZipBlobPath -ne $null -and $CustomSetupZipBlobPath -ne "") {
+# If($CustomSetupZipBlobPath -ne $null -and $CustomSetupZipBlobPath -ne "") {
 
-    $InstallMode = "CustomAzureBlobSetup"
+#     $InstallMode = "CustomAzureBlobSetup"
 
-} else {
+# } else {
 
-    $InstallMode = "WinGet"
+#     $InstallMode = "WinGet"
 
-}
+# }
 
 
 Write-Log "===== Preconfigured App Installer  ====="
 
 Write-Log "Install App: MS Office"
 Write-Log "Install Method: Full Clean (Multiple steps)"
-Write-Log "Steps:"
-Write-Log "  Attempt clean uninstall of pre-existing installations of MS Office"
-Write-Log "  Install Office using $InstallMode"
+
+Write-Log "Apps to include:"
+ForEach ($app in $IncludedApps){Write-Log " - $App"}
+Write-Log ""
+Write-Log "Apps to exlude:"
+ForEach ($App in $ExcludedApps){Write-Log " - $App"}
+Write-Log ""
+# Write-Log "Steps:"
+# Write-Log "  Attempt clean uninstall of pre-existing installations of MS Office"
+# Write-Log "  Install Office using $InstallMode"
 
 Write-Log "LOG PATH: $LogPath"
 
-
+<#
 Write-Log "========================================"
 Write-Log "SCRIPT: $ThisFileName | 1. Attempt clean uninstall of pre-existing installations of Office"
 Write-Log "========================================"
@@ -525,6 +570,145 @@ if ($InstallMode -eq "WinGet") {
     }
 
 }
+
+#>
+
+# =========================================================================
+# Fully Automated Microsoft Office Uninstaller
+# =========================================================================
+
+# Define a temporary working directory
+$workDir = "$WorkingDirectory\TEMP\Office\$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+if (!(Test-Path $workDir)) { New-Item -ItemType Directory -Path $workDir -Force | Out-Null }
+$setupExe = "$workDir\setup.exe"
+
+# Download the Office Deployment Tool (using Microsoft's permalink)
+$odtUrl = "https://go.microsoft.com/fwlink/p/?LinkID=626065"
+$odtExe = "$workDir\odt_installer.exe"
+
+Write-Log "Downloading the Office Deployment Tool..."
+Invoke-WebRequest -Uri $odtUrl -OutFile $odtExe
+
+# 3. Extract the tool silently to get setup.exe
+Write-Log "Extracting setup.exe..." 
+Start-Process -FilePath $odtExe -ArgumentList "/quiet /extract:`"$workDir`"" -Wait -NoNewWindow
+if (Test-Path $setupExe) { 
+
+    Write-Log "Setup.exe confirmed to exist. Extraction successful."
+
+}
+
+# TODO: Check if Office apps are installed
+
+# 4. Create the uninstall.xml configuration file
+$xmlPath = "$workDir\uninstall.xml"
+$xmlContent = @"
+<Configuration>
+  <Remove All="TRUE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+</Configuration>
+"@
+
+Write-Log "Creating uninstall.xml..."
+Set-Content -Path $xmlPath -Value $xmlContent
+
+# Execute the uninstallation
+
+Write-Log "Uninstalling Microsoft Office silently. This will take a few minutes..." "WARNING"
+# TODO: introduce a timer?
+
+# Run setup.exe with the uninstall config and wait for it to finish
+Try {
+
+    Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
+
+} Catch {
+
+    Write-Log "Error encountered during uninstallation: $_"
+
+}
+
+Write-Log "Uninstallation successfully triggered and completed!" "SUCCESSS"
+
+# TODO: Write-Log "Now checking for if uninstall was successful..."
+
+
+
+### Install Office
+
+Write-Log "Now moving on to install office"
+
+
+## Installer XML
+$xmlPath = "$workDir\install.xml"
+
+# Start
+$xmlContent = @"
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+"@
+
+# Teams
+if ($AppsToInstall -notcontains "Teams"){
+$xmlContent += @"
+    <Product ID="O365ProPlusEEANoTeamsRetail">
+"@
+} else {
+$xmlContent += @"
+    <Product ID="O365ProPlusRetail">
+"@
+}
+
+# language
+$xmlContent += @"
+      <Language ID="en-us" />
+"@
+
+# Determine ExcludedApps
+
+# Add excludions to XML
+if ($ExcludedApps -ne $null){
+Foreach ($ExcludedApp in $ExcludedApps){
+$xmlContent += @"
+      <ExcludeApp ID="$ExcludedApp" />
+"@
+}
+}
+
+# finish XML
+$xmlContent += @"
+    </Product>
+  </Add>
+  <Display Level="None" AcceptEULA="TRUE" />
+</Configuration>
+"@
+
+
+Write-Log "Creating install.xml..."
+Set-Content -Path $xmlPath -Value $xmlContent
+
+Write-Log "Installing Microsoft Office silently. This will take a few minutes..." "WARNING"
+# TODO: introduce a timer?
+
+# Run setup.exe with the uninstall config and wait for it to finish
+Try {
+
+    Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
+
+} Catch {
+
+    Write-Log "Error encountered during installation: $_"
+
+}
+
+Write-Log "Installation successfully triggered and completed!" "SUCCESSS"
+
+
+
+# 6. (Optional) Clean up the working directory after we are done
+# Write-Host "Cleaning up temporary files..." -ForegroundColor Cyan
+# Remove-Item -Path $workDir -Recurse -Force
+# Write-Host "Done." -ForegroundColor Green
 
 Write-Log "========================================"
 
