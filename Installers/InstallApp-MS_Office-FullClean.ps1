@@ -9,7 +9,7 @@ Param(
 
     # $ConfigFileName = "configuration.xml",
 
-    [String]$IncludedApps = "Excel,Word,PowerPoint", # Can be 'All'
+    [String]$IncludedApps = "Excel,Word,PowerPoint", # Can be 'All', "Excel,Word,PowerPoint", etc
     $LanguageCode = "en-us", # takes whatever real language code for office you supply
     
     #[String]$VerboseLogs = $True,

@@ -210,8 +210,9 @@ Write-Log "Install App: Dell Command Update"
 Write-Log "Install Method: Full Clean (Multiple steps)"
 Write-Log "Steps:"
 Write-Log " 1. Attempt clean uninstall of pre-existing installations of DCU"
-Write-Log " 2. Install required .NET version"
-Write-Log " 3. Install DCU using WinGet"
+Write-Log " 2. Uninstall .NET version 8"
+Write-Log " 3. Install required .NET version 8 variant"
+Write-Log " 4. Install DCU using WinGet"
 
 Write-Log "LOG PATH: $LogPath"
 
@@ -220,17 +221,62 @@ Write-Log "========================================"
 Write-Log "SCRIPT: $ThisFileName | 1. Attempt clean uninstall of pre-existing installations of DCU"
 Write-Log "========================================"
 
+$Success = $False 
+$Attempts = 2
+
 Try{ 
 
-    Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall Dell.CommandUpdate"
-    #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate" -UninstallType "All" -WorkingDirectory $WorkingDirectory
-    & $UninstallerScript -AppName "Dell.CommandUpdate" -UninstallType "All" -WorkingDirectory $WorkingDirectory
-    if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+    While($Attempts -ne 0){
 
-    Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall Dell.CommandUpdate.Universal"
-    #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "All" -WorkingDirectory $WorkingDirectory
-    & $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "All" -WorkingDirectory $WorkingDirectory
-    if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
+        # Registry: "Dell Command | Update" 
+        # Can possibly remove, the below instances should work without the need to hit CIM. 
+        Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall via CIM: Dell Command | Update"
+        #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "All" -WorkingDirectory $WorkingDirectory
+        & $UninstallerScript -AppName "Dell Command | Update" -DisplayName "Dell Command | Update" -UninstallType "Remove-App-CIM" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { $Method3Success=$False } else { $Method3Success=$True}
+
+        Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall AppXPackage: DellInc.DellCommandUpdate"
+        #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "All" -WorkingDirectory $WorkingDirectory
+        & $UninstallerScript -AppName "DellInc.DellCommandUpdate" -UninstallType "Remove-AppxPackage" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { $Method3Success=$False } else { $Method3Success=$True}
+
+        Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall WinGet app: Dell.CommandUpdate"
+        #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate" -UninstallType "All" -WorkingDirectory $WorkingDirectory
+        & $UninstallerScript -AppName "Dell.CommandUpdate" -UninstallType "Remove-App-WinGet" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { $Method1Success=$False } else { $Method1Success=$True}
+
+        Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall WinGet app: Dell.CommandUpdate.Universal"
+        #Powershell.exe -executionpolicy remotesigned -File $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "All" -WorkingDirectory $WorkingDirectory
+        & $UninstallerScript -AppName "Dell.CommandUpdate.Universal" -UninstallType "Remove-App-WinGet" -WorkingDirectory $WorkingDirectory
+        if ($LASTEXITCODE -ne 0) { $Method2Success=$False } else { $Method2Success=$True}
+
+
+
+        if (($Method1Success -eq $True) -and ($Method2Success -eq $True) -and ($Method3Success -eq $True)){ 
+            
+            $Success = $True
+            $Attempts = 0
+
+        } else {
+
+            $Attempts--
+
+        }
+
+    }
+
+    if ($Success -eq $False){
+
+        Write-Log "Failed to uninstall Dell Command Update. Here are the uninstall attempt" "ERROR"
+
+        Write-Log "WinGet app:      Dell.CommandUpdate               Uninstall Success: $Method1Success"
+        Write-Log "WinGet app:      Dell.CommandUpdate.Universal     Uninstall Success: $Method2Success"
+        Write-Log "AppXPackage:     DellInc.DellCommandUpdate        Uninstall Success: $Method3Success"
+
+        Exit 1
+
+    }
+
 
 } Catch {
 
@@ -240,7 +286,7 @@ Try{
 }
 
 Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | 3. Uninstall .NET version 8"
+Write-Log "SCRIPT: $ThisFileName | 2. Uninstall .NET version 8"
 Write-Log "========================================"
 
 Try {
@@ -256,7 +302,7 @@ Try {
 }
 
 Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | 4. Install required .NET version"
+Write-Log "SCRIPT: $ThisFileName | 3. Install required .NET version"
 Write-Log "========================================"
 
 Try {
@@ -277,7 +323,7 @@ Try {
 }
 
 Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | 5. Install DCU using WinGet"
+Write-Log "SCRIPT: $ThisFileName | 4. Install DCU using WinGet"
 Write-Log "========================================"
 
 Try {

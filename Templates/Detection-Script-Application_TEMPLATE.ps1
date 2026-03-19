@@ -25,9 +25,40 @@ $forcemachinecontext=$false
 
 $LocalRepoPath = "$WorkingDirectory\$RepoNickName"
 $LogRoot = "$WorkingDirectory\Logs\Detection_Logs"
-$LogPath = "$LogRoot\DetectionScript-WinGet_$AppToDetect._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $ThisFileName = $MyInvocation.MyCommand.Name
 
+# Make sure log path is clean because AppToDetect could be anything
+
+$inputString = $AppToDetect
+
+# 1. Get the list of illegal characters for the current OS
+$illegalChars = [System.IO.Path]::GetInvalidFileNameChars()
+
+# 2. Escape them for Regex (so characters like '[' or '.' don't break the logic)
+$regexPattern = "[" + [RegEx]::Escape(-join $illegalChars) + "]"
+
+# 3. Identify which characters are actually present in your string
+$foundIllegal = [char[]]$inputString | Where-Object { $illegalChars -contains $_ } | Select-Object -Unique
+
+if ($foundIllegal) {
+
+    Write-Host "Found illegal characters in AppToDetect var: $( -join $foundIllegal )" -ForegroundColor Yellow
+
+    # 4. Perform the replacement
+    $cleanString = $inputString -replace $regexPattern, "-"
+
+    Write-Host "Original: $inputString"
+    Write-Host "Cleaned:  $cleanString" 
+
+    Write-Host "This name will only be used in the log file name."
+
+    $LogPath = "$LogRoot\DetectionScript-WinGet_$cleanString._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+} else {
+
+    $LogPath = "$LogRoot\DetectionScript-WinGet_$AppToDetect._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    
+}
 
 
 ###############
@@ -871,31 +902,42 @@ Function Detect--WinGetApplicationInstalled {
 
 Function Detect--AppXPackageInstalled {
 
-    if ($AppXpackageName -eq $null -or $AppXpackageName -eq ""){
+    Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Searching for application as AppX Provisioned package: $AppToDetect"
 
-        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | No AppXpackageName supplied for AppXpackage detection. Will attempt to use DisplayName and NickName." "WARNING"
 
-        Try {
+    if ($AppXpackageName -eq $null -and $AppXpackageName -eq ""){
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use nickname: $AppToDetect"
-            $Detection1 = Get-AppxPackage -AllUsers -Name $AppToDetect
+        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | No AppXpackageName supplied for AppXpackage detection. Will attempt to use DisplayName and NickName. Results will be reported after attempts are made." "WARNING"
 
-        } Catch {
+        if ($AppToDetect -ne $null -and $AppToDetect -ne ""){
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use nickname: $AppToDetect. Error: $_" "WARNING"
-            $Detection1 = $null
-        }
+            Try {
 
-        Try {
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use nickname: $AppToDetect"
+                $Detection1 = Get-AppxPackage -AllUsers -Name $AppToDetect
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use DisplayName: $DisplayName"
-            $Detection2 = Get-AppxPackage -AllUsers -Name $DisplayName
+            } Catch {
 
-        } Catch {
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use nickname: $AppToDetect. Error: $_" "WARNING"
+                $Detection1 = $null
+            }
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use DisplayName: $DisplayName. Error: $_" "WARNING"
-            $Detection2 = $null
-        }
+        } else {$Detection1 = $null}
+
+        if ($DisplayName -ne $null -and $DisplayName -ne ""){
+
+            Try {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use DisplayName: $DisplayName"
+                $Detection2 = Get-AppxPackage -AllUsers -Name $DisplayName
+
+            } Catch {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use DisplayName: $DisplayName. Error: $_" "WARNING"
+                $Detection2 = $null
+            }
+
+        } else {$Detection2 = $null}
 
         if ($Detection1 -ne $null){
 
@@ -915,11 +957,11 @@ Function Detect--AppXPackageInstalled {
         }
         
 
-    } elseif ($AppXpackageName -ne $null -or $AppXpackageName -ne ""){
+    } elseif ($AppXpackageName -ne $null -and $AppXpackageName -ne ""){
         
         Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Searching for application as AppX package: $AppXpackageName"
 
-        $Detection = Get-AppxPackage -AllUsers -Name$AppXpackageName
+        $Detection = Get-AppxPackage -AllUsers -Name $AppXpackageName
 
         if ($Detection -ne $null){
 
@@ -951,41 +993,82 @@ Function Detect--AppXProvisionedPackageInstalled {
 
     Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Searching for application as AppX Provisioned package: $AppToDetect"
 
-    if ($DisplayName -ne $null -and $DisplayName -ne ""){
+    if ($AppXpackageName -eq $null -and $AppXpackageName -eq ""){
 
-        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting detection by DisplayName: $DisplayName"
-        $Detection = Get-AppxProvisionedPackage -Online | Where-Object {$_.DisplayName -like "*$DisplayName*"}
+        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | No AppXpackageName supplied for AppXpackage detection. Will attempt to use DisplayName and NickName. Results will be reported after attempts are made." "WARNING"
 
-        if ($Detection -ne $null){
+        if ($AppToDetect -ne $null -and $AppToDetect -ne ""){
+
+            Try {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use nickname: $AppToDetect"
+                $Detection1 = Get-AppxProvisionedPackage -Name $AppToDetect
+
+            } Catch {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use nickname: $AppToDetect. Error: $_" "WARNING"
+                $Detection1 = $null
+            }
+
+        } else {$Detection1 = $null}
+
+        if ($DisplayName -ne $null -and $DisplayName -ne ""){
+
+            Try {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting to use DisplayName: $DisplayName"
+                $Detection2 = Get-AppxProvisionedPackage -Name $DisplayName
+
+            } Catch {
+
+                Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Error attempting to use DisplayName: $DisplayName. Error: $_" "WARNING"
+                $Detection2 = $null
+            }
+
+        } else {$Detection2 = $null}
+
+        if ($Detection1 -ne $null){
+
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application detected by AppXpackageName: $AppToDetect" "SUCCESS"
+            Return 0
+
+        } elseif ($Detection2 -ne $null){
 
             Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application detected by DisplayName: $DisplayName" "SUCCESS"
             Return 0
 
         } else {
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application NOT detected by DisplayName: $DisplayName" "WARNING"
-            # Continue to next detection method
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application NOT detected by AppXpackageName or DisplayName" "WARNING"
+            Return 1
 
         }
+        
 
-    } elseif( $AppToDetect -ne $null -and $AppToDetect -ne ""){
+    } elseif ($AppXpackageName -ne $null -and $AppXpackageName -ne ""){
+        
+        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Searching for application as AppX package: $AppXpackageName"
 
-        $Detection = Get-AppxProvisionedPackage -Online | Where-Object {$_.PackageName -like "*$AppToDetect*"}
+        $Detection = Get-AppxProvisionedPackage -Name $AppXpackageName
 
         if ($Detection -ne $null){
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application detected by AppXProvisionedPackage: $AppToDetect" "SUCCESS"
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application detected by AppXpackageName: $AppXpackageName" "SUCCESS"
             Return 0
 
         } else {
 
-            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application NOT detected by AppXProvisionedPackage: $AppToDetect" "WARNING"
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Application NOT detected by AppXpackageName: $AppXpackageName" "WARNING"
             Return 1
 
         }
 
-    }
+    } else {
 
+        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Insufficient parameters for AppXpackage detection." "WARNING"
+        Return 1
+
+    }
 
 
 
@@ -997,12 +1080,20 @@ Function Detect--CIM {
 
     Try {
 
-        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting detection by AppToDetect: $AppToDetect"
-        $Detection1 = Get-CimInstance -ClassName Win32_Product | Where-Object { $_.Name -like "$AppToDetect*"} | Select-object name
+        if ($AppToDetect -ne $null -and $AppToDetect -ne ""){
 
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting detection by AppToDetect: $AppToDetect"
+            $Detection1 = Get-CimInstance -ClassName Win32_Product | Where-Object { $_.Name -like "$AppToDetect*"} | Select-object name
+            
+        } elseif ($DisplayName -ne $null -and $DisplayName -ne ""){
 
-        Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting detection by DisplayName: $DisplayName"
-        $Detection2 = Get-CimInstance -ClassName Win32_Product | Where-Object { $_.Name -like "$DisplayName*"} | Select-object name
+            Write-Log "SCRIPT: $ThisFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | Attempting detection by DisplayName: $DisplayName"
+            $Detection2 = Get-CimInstance -ClassName Win32_Product | Where-Object { $_.Name -like "$DisplayName*"} | Select-object name
+        
+        } else {
+
+            Throw "No supplied AppToDetect or DisplayName vars. Cannot run detection."
+        }
 
     } Catch {
 
@@ -1067,7 +1158,44 @@ Try{
     Exit 1
 }
 
+# Make sure log path is clean because AppToDetect could be anything
+Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Testing log path name validity..."
+    $inputString = $AppToDetect
+
+    # 1. Get the list of illegal characters for the current OS
+    $illegalChars = [System.IO.Path]::GetInvalidFileNameChars()
+
+    # 2. Escape them for Regex (so characters like '[' or '.' don't break the logic)
+    $regexPattern = "[" + [RegEx]::Escape(-join $illegalChars) + "]"
+
+    # 3. Identify which characters are actually present in your string
+    $foundIllegal = [char[]]$inputString | Where-Object { $illegalChars -contains $_ } | Select-Object -Unique
+
+    if ($foundIllegal) {
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Found illegal characters in AppToDetect var: $( -join $foundIllegal )" #-ForegroundColor Yellow
+
+        # 4. Perform the replacement
+        $cleanString = $inputString -replace $regexPattern, "-"
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Original: $inputString"
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Cleaned:  $cleanString" 
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX This name will only be used in the log file name."
+
+        $LogPath = "$LogRoot\DetectionScript-WinGet_$cleanString._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    } else {
+
+        $LogPath = "$LogRoot\DetectionScript-WinGet_$AppToDetect._Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    } 
+
+    Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Log path: $LogPath"
+
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+
 
 
 

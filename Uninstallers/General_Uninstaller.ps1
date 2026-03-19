@@ -96,7 +96,7 @@ Param(
     
     [int]$timeoutSeconds = 900, # Timeout in seconds (300 sec = 5 minutes)
 
-    [int]$FinalCheckRetryCount = 5,
+    [int]$FinalCheckRetryCount = 3,
 
     $SkipWinGet = $False, # if true, WinGet functionality will be skipped. This is useful for end user sessions where winget is not accessible, for example when using an elevated session within a non admin user session.
 
@@ -105,7 +105,8 @@ Param(
 
     # These can be explicitly passed if the AppName is seperate
     $WinGetID=$null,
-    $UninstallString_DisplayName=$null
+    $UninstallString_DisplayName=$null, # Takes precedence over the DisplayName var
+    $DisplayName=$null # will be converted to UninstallString_DisplayName if that value doesn't exist
 
 
 
@@ -121,7 +122,7 @@ Param(
 $LogRoot = "$WorkingDirectory\Logs\Uninstaller_Logs"
 
 # Don't Change these
-$SafeAppID = $AppName -replace '[^\w]', '_'
+# $SafeAppID = $AppName -replace '[^\w]', '_'
 $LogPath = "$LogRoot\$SafeAppID.$UninstallType._MainUninstallLog_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $uninstallSuccess = $False
 
@@ -130,6 +131,9 @@ $InstallWinGetScript = "$RepoRoot\Installers\Install-WinGet.ps1"
 
 # path to application detection script
 $AppDetectionScriptPath = "$RepoRoot\Templates\Detection-Script-Application_TEMPLATE.ps1"
+
+if ($UninstallString_DisplayName -eq $null -or $UninstallString_DisplayName -eq ""){ $UninstallString_DisplayName = $DisplayName }
+
 
 
 #################
@@ -1989,6 +1993,43 @@ $pathsToValidate = @{
     'InstallWinGetScript' = $InstallWinGetScript
 }
 Test-PathSyntaxValidity -Paths $pathsToValidate -ExitOnError
+
+# Make sure log path is clean because AppName could be anything
+Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Testing log path name validity..."
+    $inputString = $AppName
+
+    # 1. Get the list of illegal characters for the current OS
+    $illegalChars = [System.IO.Path]::GetInvalidFileNameChars()
+
+    # 2. Escape them for Regex (so characters like '[' or '.' don't break the logic)
+    $regexPattern = "[" + [RegEx]::Escape(-join $illegalChars) + "]"
+
+    # 3. Identify which characters are actually present in your string
+    $foundIllegal = [char[]]$inputString | Where-Object { $illegalChars -contains $_ } | Select-Object -Unique
+
+    if ($foundIllegal) {
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Found illegal characters in AppName var: $( -join $foundIllegal )" #-ForegroundColor Yellow
+
+        # 4. Perform the replacement
+        $cleanString = $inputString -replace $regexPattern, "-"
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Original: $inputString"
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Cleaned:  $cleanString" 
+
+        Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX This name will only be used in the log file name."
+
+        $LogPath = "$LogRoot\$cleanString.$UninstallType._MainUninstallLog_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+
+    } else {
+
+        $LogPath = "$LogRoot\$SafeAppID.$UninstallType._MainUninstallLog_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    } 
+
+    Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXX Log path: $LogPath"
+
 Write-Host "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
 
@@ -2210,7 +2251,7 @@ While ($ThisuninstallSuccess -ne $True -and $Counter -gt 0){
 
     } else {
 
-        Write-Log "Detect all method did NOT find the target app" "SUCCESS"
+        Write-Log "SCRIPT: $ThisFileName | FINAL CHECK | Detect all method did NOT find the target app" "SUCCESS"
         
         If ($uninstallSuccess -eq $False){
 

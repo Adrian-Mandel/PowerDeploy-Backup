@@ -390,15 +390,38 @@ if($detectPreviousInstallation -eq $true){
 
     # Try installation of target ID
     try {
+
+        <#
+            
+            NOTES:
+
+            The --scope machine arg breaks the installer. Here are ideas to try out in the future for trying to force apps to install for all users if necessary:
+
+            For MSI Installers:
+            You can pass the standard Windows Installer property ALLUSERS=1.
+            winget install --id Example.App --override "/qn ALLUSERS=1"
+
+            For InnoSetup Installers:
+            Many InnoSetup .exe files accept the /ALLUSERS argument.
+            winget install --id Example.App --override "/VERYSILENT /SUPPRESSMSGBOXES /ALLUSERS"
+
+            For Nullsoft (NSIS) Installers:
+            These are trickier, but you can usually force them into the machine directory using the /D flag.
+            winget install --id Example.App --override "/S /D=C:\Program Files\ExampleApp"
+
+            A quick tip: If you ever want to see exactly what installer type an app uses so you know which override to use, you can run winget show <AppID>. It will list the installer type (MSI, Inno, Nullsoft, Wix, etc.) near the bottom.
+
+            
+        #>
     
         $cmd = "$winget"
         if ($null -eq $Version){
             
-            $args = "install --id $AppID -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --scope machine --verbose-logs"
+            $args = "install --id $AppID -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --verbose-logs"
 
         } else {
             
-            $args = "install --id $AppID --version $Version -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --scope machine --verbose-logs"
+            $args = "install --id $AppID --version $Version -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity --source winget --verbose-logs"
 
         }
 
@@ -432,7 +455,7 @@ if($detectPreviousInstallation -eq $true){
         }   
 
 
-        Write-Log "Installation process completed, now detecting local installation..."
+        Write-Log "Installation process of $AppID completed, now detecting local installation..."
         Start-Sleep -Seconds 15 
         $detectInstallation = WinGet-Detect $AppID
 
@@ -567,7 +590,7 @@ if($detectPreviousInstallation -eq $true){
                 
                 }   
 
-                Write-Log "Installation process completed, now detecting local installation..."
+                Write-Log "Installation process of $AppID completed, now detecting local installation..."
                 Start-Sleep -Seconds 15 
                 $detectInstallation2 = WinGet-Detect $AppID
 
