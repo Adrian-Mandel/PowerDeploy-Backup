@@ -914,12 +914,12 @@ if ($WinGet -eq "Failure"){
 
 }
 
-Write-Log "WinGet check/install success!! Final location: $WinGet" "SUCCESS"
+Write-Log "WinGet check/install success!! Final location: $WinGet" #"SUCCESS"
 # Return the path of WinGet to be used
 if ($ReturnWinGetPath -eq $True){
 
     Write-Log "++++++++++++++++++++++++++++"
-    Write-Log "SCRIPT: $ThisFileName | END | Returning WinGet location..." "SUCCESS"
+    Write-Log "SCRIPT: $ThisFileName | END | Returning WinGet location..." #"SUCCESS"
     Return $WinGet
     
 } else {

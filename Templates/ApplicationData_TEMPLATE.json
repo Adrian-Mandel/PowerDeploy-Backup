@@ -6,8 +6,17 @@
     "WinGetID": "Microsoft.VisualStudioCode"
   },
   {
-    "ApplicationName": "Microsoft_Office365_(Word-Excel-PowerPoint)",
+    "ApplicationName": "Microsoft_Office365--Word-Excel-PowerPoint",
     "InstallMethod": "Custom_Script",
+    "CustomScriptArgs": "-IncludedApps \"Excel,Word,PowerPoint\"",
+    "ScriptPathFromRepoRoot": "Installers\\InstallApp-MS_Office-FullClean.ps1",
+    "UninstallType": "All",
+    "DisplayName": "Microsoft 365 Apps for enterprise - en-us"
+  },
+  {
+    "ApplicationName": "Microsoft_Office365--AllApps",
+    "InstallMethod": "Custom_Script",
+    "CustomScriptArgs": "-IncludedApps \"All\"",
     "ScriptPathFromRepoRoot": "Installers\\InstallApp-MS_Office-FullClean.ps1",
     "UninstallType": "All",
     "DisplayName": "Microsoft 365 Apps for enterprise - en-us"
@@ -97,15 +106,6 @@
     "InstallMethod": "WinGet",
     "WinGetID": "TESTESTEST",
     "PreRequisites":"Google_Chrome,7zip,Dell_CommandUpdate"
-  },
-  {
-    "ApplicationName": "Custom_Office_Install_Example",
-    "InstallMethod": "Custom_Script",
-    "ScriptPathFromRepoRoot": "Installers\\InstallApp-MS_Office-FullClean.ps1",
-    "CustomScriptArgs": "-CustomSetupZipBlobPath \"Microsoft_Office/CustomOfficeSetup.zip\" -ConfigFileName \"configuration.xml\"",
-    "UninstallType": "All",
-    "WinGetID": "Microsoft.Office",
-    "DisplayName": "Microsoft Office"
   },
   {
     "ApplicationName": "Custom_RMM_Installer_Example",
