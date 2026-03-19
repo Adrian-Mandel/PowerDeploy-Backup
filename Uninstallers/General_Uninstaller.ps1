@@ -1830,6 +1830,9 @@ Function Remove-App-CustomString([String]$appName)
         # # Bypassing command runner
         # $Uninstall = cmd /c $UninstallCustomString#.replace("`"","") # Removing quotes if they exist, as they can cause issues when running the command this way. Command runner handles quotes properly, but since we're bypassing it we need to remove them here to avoid issues.
 
+        # TODO: Kill application instances?
+
+
         $CmdString = $UninstallCustomString.Replace("'", '"')
         Write-Log "Running custom uninstall string: $CmdString"
         $Uninstall = cmd /c $CmdString

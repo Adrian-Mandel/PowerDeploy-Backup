@@ -378,7 +378,6 @@ Function ParseJSON {
         Throw $_
     }
 
-
     Write-Log ""
 
     # Can comment out
