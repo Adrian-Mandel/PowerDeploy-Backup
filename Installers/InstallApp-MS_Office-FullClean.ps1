@@ -10,6 +10,7 @@ Param(
     # $ConfigFileName = "configuration.xml",
 
     [String]$IncludedApps = "Excel,Word,PowerPoint", # Can be 'All'
+    $LanguageCode = "en-us", # takes whatever real language code for office you supply
     
     #[String]$VerboseLogs = $True,
     [int]$timeoutSeconds = 900 # Timeout in seconds (300 sec = 5 minutes)
@@ -51,12 +52,12 @@ $LogPath = "$LogRoot\$ThisFileName.Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').log
 # Process the excluded apps
 [Array]$TotalPossibleApps='Excel', 'Word', 'PowerPoint', 'Access', 'Groove', 'Lync', 'OneDrive', 'OneNote', 'Outlook', 'Publisher', 'Teams', 'Bing'
 [Array]$ExcludedApps
-$IncludedApps = $IncludedApps -replace ' ',''
-$IncludedApps = $IncludedApps -Split ','
+[Array]$IncludedAppsArray = $IncludedApps -Split ',\s?'
 
-if ($IncludedApps -eq 'All') {
 
-    $ExlcudedApps = $null
+if ($IncludedAppsArray -eq 'All') {
+
+    $ExcludedApps = $null
 
 } else {
 
@@ -64,11 +65,15 @@ if ($IncludedApps -eq 'All') {
 
         $Match = $False
 
-        ForEach ($IncludedApp in $IncludedApps){
+        ForEach ($IncludedApp in $IncludedAppsArray){
+
+            Write-Log "Checking if $PossibleApp matches $IncludedApp..."
 
             if ($PossibleApp -Match $IncludedApp){
 
                 $Match = $True
+
+                Write-Log "Match!"
 
             }
 
@@ -76,7 +81,8 @@ if ($IncludedApps -eq 'All') {
 
         if ($Match -eq $False){
 
-            $ExlcudedApps += $PossibleApp
+            Write-Log "Adding $PossibleApp to exlcusion list"
+            [Array]$ExcludedApps += $PossibleApp
 
         }
 
@@ -214,6 +220,55 @@ function Write-Log {
     Add-Content -Path $LogPath -Value $logEntry
 }
 
+function InstallCheck {
+
+
+    # $AppPackagesToRemove = @(
+
+    #     "Microsoft.OfficePushNotificationUtility",
+    #     "Microsoft.Office.ActionsServer",
+    #     "Microsoft.MicrosoftOfficeHub"
+
+    # )
+
+    # $CIMtoUninstall = @(
+
+    #     "Office 16 Click-to-Run Extensibility Component"
+
+    # )
+
+    $RegistryItems = @(
+
+        "Office 16 Click-to-Run Extensibility Component",
+        "Aplicaciones de Microsoft 365 para empresas - es-mx",
+        "Microsoft 365 Apps for enterprise - en-us"
+
+    )
+
+
+    $Found = $False
+
+    ForEach ($DisplayName in $RegistryItems){
+
+        Try {
+            & $AppDetectionScriptPath -AppToDetect "$DisplayName" -WorkingDirectory $WorkingDirectory -DisplayName $DisplayName -DetectMethod "MSI_Registry"
+            $Result = $LASTEXITCODE
+        } Catch {
+            $Found = "Error: $_"
+        }
+
+        if ($Result -eq 0) {
+            $Found = $True
+        } elseif ($Result -eq 1) {
+            $Found = $False
+        } else {$Found = "Error"}
+
+    }
+
+    Return $Found
+
+}
+
 ##########
 ## Main ##
 ##########
@@ -272,9 +327,9 @@ Write-Log "===== Preconfigured App Installer  ====="
 
 Write-Log "Install App: MS Office"
 Write-Log "Install Method: Full Clean (Multiple steps)"
-
+Write-Log ""
 Write-Log "Apps to include:"
-ForEach ($app in $IncludedApps){Write-Log " - $App"}
+ForEach ($app in $IncludedAppsArray){Write-Log " - $App"}
 Write-Log ""
 Write-Log "Apps to exlude:"
 ForEach ($App in $ExcludedApps){Write-Log " - $App"}
@@ -287,7 +342,7 @@ Write-Log "LOG PATH: $LogPath"
 
 <#
 Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | 1. Attempt clean uninstall of pre-existing installations of Office"
+Write-Log "SCRIPT: $ThisFileName | Attempt clean uninstall of pre-existing installations of Office"
 Write-Log "========================================"
 
 Try{ 
@@ -573,12 +628,10 @@ if ($InstallMode -eq "WinGet") {
 
 #>
 
-# =========================================================================
-# Fully Automated Microsoft Office Uninstaller
-# =========================================================================
+###
 
 # Define a temporary working directory
-$workDir = "$WorkingDirectory\TEMP\Office\$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$workDir = "$WorkingDirectory\TEMP\Downloads\Office\$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 if (!(Test-Path $workDir)) { New-Item -ItemType Directory -Path $workDir -Force | Out-Null }
 $setupExe = "$workDir\setup.exe"
 
@@ -587,113 +640,224 @@ $odtUrl = "https://go.microsoft.com/fwlink/p/?LinkID=626065"
 $odtExe = "$workDir\odt_installer.exe"
 
 Write-Log "Downloading the Office Deployment Tool..."
-Invoke-WebRequest -Uri $odtUrl -OutFile $odtExe
+Try {
+
+    $Success = $False
+
+    # Force TLS 1.2 to ensure the connection to Microsoft isn't rejected
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    Write-Log "Will attempt to locate the latest Office Deployment Tool URL..."
+
+    # 1. Hit the main Details page instead of the dead Confirmation page
+    Write-Log "Downloading the download page..."
+    $downloadPage = "https://www.microsoft.com/en-us/download/details.aspx?id=49117"
+    $webResponse = Invoke-WebRequest -Uri $downloadPage -UseBasicParsing
+
+    # 2. Extract the direct .exe link using Regex on the raw HTML
+    # This avoids the .Links property issue and grabs the CDN link directly
+    $pattern = '(https://[^"''\s>]+officedeploymenttool_[^"''\s>]+\.exe)'
+    
+    if ($webResponse.Content -match $pattern) {
+        $directLink = $Matches[1]
+        Write-Log "Found direct link: $directLink"
+    } else {
+        Throw "Could not scrape the direct download link from the download page. No link present."
+    }
+
+    # 3. Download the actual executable
+    Write-Log "Downloading actual ODT executable from Microsoft CDN..."
+    # Ensure $workDir is defined earlier in your script, or replace it with a hardcoded path
+    $odtExe = "$workDir\odt_installer.exe" 
+    Invoke-WebRequest -Uri $directLink -OutFile $odtExe -UseBasicParsing
+
+    $Counter = 3
+    While ($Counter -ne 0){
+
+        $Counter--
+
+        Write-Log "Waiting for system to refresh..."
+        Start-Sleep -Seconds 3
+        if (!(Test-Path $odtExe)){
+            Write-Log "odt_installer.exe not found..." "ERROR"
+        } else {
+
+            Write-Log "Downloaded installer confirmed to exist!"
+            $Success = $True
+            $Counter = 0
+        }
+
+    }
+
+    If ($Success -eq $False){
+        Throw "odt_installer.exe not found at $odtExe!"
+    }
+
+
+} Catch {
+
+    Write-Log "Download of Office Deployment Tool failed: $_" "ERROR"
+    Exit 1
+
+}
+
+
 
 # 3. Extract the tool silently to get setup.exe
 Write-Log "Extracting setup.exe..." 
 Start-Process -FilePath $odtExe -ArgumentList "/quiet /extract:`"$workDir`"" -Wait -NoNewWindow
+Start-Sleep -Seconds 3
 if (Test-Path $setupExe) { 
 
     Write-Log "Setup.exe confirmed to exist. Extraction successful."
 
+} else {
+
+    Write-Log "Setup.exe not confirmed to exist at expected location: $setupExe" "ERROR"
+
+    Exit 1
+
 }
 
-# TODO: Check if Office apps are installed
+# Check if Office apps are installed
+Write-Log "Checking if Office apps are already installed to determine if uninstall is necessary..."
+$Check = InstallCheck
 
-# 4. Create the uninstall.xml configuration file
-$xmlPath = "$workDir\uninstall.xml"
+if ($Check -eq $True){
+
+    Write-Log "Previous Office installation found. Will move forward with uninstallation."
+
+} elseif ($Check -eq $False) {
+
+    Write-Log "No previous Office installation found. Will skip uninstallation."
+
+} else {
+
+    Write-Log "Error encountered while checking: $Check" "ERROR"
+
+    Exit 1
+
+}
+
+### Uninstall Office
+if ($Check -eq $True){
+
+
+    # Create the uninstall.xml configuration file
+    $xmlPath = "$workDir\uninstall.xml"
+
 $xmlContent = @"
 <Configuration>
   <Remove All="TRUE" />
+  <RemoveMSI />
   <Display Level="None" AcceptEULA="TRUE" />
 </Configuration>
 "@
 
-Write-Log "Creating uninstall.xml..."
-Set-Content -Path $xmlPath -Value $xmlContent
+    Write-Log "Creating uninstall.xml..."
+    Set-Content -Path $xmlPath -Value $xmlContent
 
-# Execute the uninstallation
+    # Execute the uninstallation
 
-Write-Log "Uninstalling Microsoft Office silently. This will take a few minutes..." "WARNING"
-# TODO: introduce a timer?
+    Write-Log "Uninstalling Microsoft Office silently. This may take a few minutes..." "WARNING"
+    # TODO: introduce a timer?
 
-# Run setup.exe with the uninstall config and wait for it to finish
-Try {
+    # Run setup.exe with the uninstall config and wait for it to finish
+    Try {
 
-    Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
+        Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
 
-} Catch {
+    } Catch {
 
-    Write-Log "Error encountered during uninstallation: $_"
+        Write-Log "Error encountered during uninstallation: $_"
+
+    }
+
+    Write-Log "Uninstallation successfully triggered and completed!" "SUCCESSS"
+
+    Write-Log "Now checking for if uninstall was successful..."
+
+    $Check = InstallCheck
+
+    if ($Check -eq $True){
+
+        Write-Log "Previous Office installation found. Uninstallation failed." "ERROR"
+        Exit 1
+
+    } elseif ($Check -eq $False) {
+
+        Write-Log "No Office installation found. Uninstall success." "SUCCESS"
+
+    } else {
+
+        Write-Log "Error encountered while checking: $Check" "ERROR"
+
+        Exit 1
+
+    }
 
 }
-
-Write-Log "Uninstallation successfully triggered and completed!" "SUCCESSS"
-
-# TODO: Write-Log "Now checking for if uninstall was successful..."
-
-
 
 ### Install Office
 
 Write-Log "Now moving on to install office"
-
-
 ## Installer XML
 $xmlPath = "$workDir\install.xml"
 
-# Start
-$xmlContent = @"
-<Configuration>
-  <Add OfficeClientEdition="64" Channel="Current">
-"@
+# Initialize an empty array
+$xmlLines = @()
 
-# Teams
+# Start building the XML line by line
+$xmlLines += '<Configuration>'
+$xmlLines += '  <Add OfficeClientEdition="64" Channel="Current">'
+
+# Teams Logic
 if ($AppsToInstall -notcontains "Teams"){
-$xmlContent += @"
-    <Product ID="O365ProPlusEEANoTeamsRetail">
-"@
+    $xmlLines += '    <Product ID="O365ProPlusEEANoTeamsRetail">'
 } else {
-$xmlContent += @"
-    <Product ID="O365ProPlusRetail">
-"@
+    $xmlLines += '    <Product ID="O365ProPlusRetail">'
 }
 
-# language
-$xmlContent += @"
-      <Language ID="en-us" />
-"@
+# Language
+$LanguageLine = '      <Language ID="'+$LanguageCode+'" />'
+$xmlLines += $LanguageLine
 
-# Determine ExcludedApps
-
-# Add excludions to XML
+# Add exclusions to XML
 if ($ExcludedApps -ne $null){
-Foreach ($ExcludedApp in $ExcludedApps){
-$xmlContent += @"
-      <ExcludeApp ID="$ExcludedApp" />
-"@
-}
+    foreach ($ExcludedApp in $ExcludedApps){
+        # Notice we use double quotes here so the $ExcludedApp variable expands properly
+        $xmlLines += "      <ExcludeApp ID=`"$ExcludedApp`" />" 
+    }
 }
 
-# finish XML
-$xmlContent += @"
-    </Product>
-  </Add>
-  <Display Level="None" AcceptEULA="TRUE" />
-</Configuration>
-"@
-
+# Finish XML
+$xmlLines += '    </Product>'
+$xmlLines += '  </Add>'
+$xmlLines += '  <Display Level="None" AcceptEULA="TRUE" />'
+$xmlLines += '</Configuration>'
 
 Write-Log "Creating install.xml..."
-Set-Content -Path $xmlPath -Value $xmlContent
 
-Write-Log "Installing Microsoft Office silently. This will take a few minutes..." "WARNING"
+# Set-Content automatically handles putting each array item on a new line!
+$xmlLines | Set-Content -Path $xmlPath -Encoding UTF8
+Write-Log "Installing Microsoft Office silently. This may take a few minutes..." "WARNING"
 # TODO: introduce a timer?
 
 # Run setup.exe with the uninstall config and wait for it to finish
 Try {
 
     Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
+
+    # Hunt down the generated logs and move them to your custom folder
+    # ODT names logs starting with the machine name (e.g., MACHINENAME-20260318-1200.log)
+    $tempPaths = @($env:TEMP, "$env:windir\Temp")
+    $LogFolder = "$LogRoot\Installer_Logs"
+    Get-ChildItem -Path $tempPaths -Filter "$env:COMPUTERNAME*.log" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge (Get-Date).AddMinutes(-60) } |
+        Copy-Item -Destination $LogFolder -Force
+
+    Write-Host "Installation complete. Logs moved to $LogFolder"
+
 
 } Catch {
 
@@ -703,7 +867,29 @@ Try {
 
 Write-Log "Installation successfully triggered and completed!" "SUCCESSS"
 
+# Check for installation
 
+Write-Log "Checking if install was successful..."
+
+$Check = InstallCheck
+
+    if ($Check -eq $True){
+
+        Write-Log " Office installation found. Install success!" "SUCCESS"
+
+
+    } elseif ($Check -eq $False) {
+
+        Write-Log "No Office installation found. Install success." "ERROR"
+        Exit 1
+
+    } else {
+
+        Write-Log "Error encountered while checking: $Check" "ERROR"
+
+        Exit 1
+
+    }
 
 # 6. (Optional) Clean up the working directory after we are done
 # Write-Host "Cleaning up temporary files..." -ForegroundColor Cyan

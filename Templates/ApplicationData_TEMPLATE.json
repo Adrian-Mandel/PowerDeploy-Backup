@@ -6,11 +6,10 @@
     "WinGetID": "Microsoft.VisualStudioCode"
   },
   {
-    "ApplicationName": "Microsoft_Office_Default",
+    "ApplicationName": "Microsoft_Office365_(Word-Excel-PowerPoint)",
     "InstallMethod": "Custom_Script",
     "ScriptPathFromRepoRoot": "Installers\\InstallApp-MS_Office-FullClean.ps1",
     "UninstallType": "All",
-    "WinGetID": "Microsoft.Office",
     "DisplayName": "Microsoft 365 Apps for enterprise - en-us"
   },
   {
