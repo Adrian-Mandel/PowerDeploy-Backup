@@ -125,7 +125,7 @@ if ($ContentDisposition -match 'filename="?([^"]+)"?') {
     $FileName = Split-Path $DownloadURL -Leaf
 }
 
-Write-Host "Filename: $FileName"
+Write-Log "Detected Filename: $FileName"
 
 
 # $FileNameFromURL = Split-Path $DownloadURL -Leaf
@@ -159,8 +159,22 @@ if (Test-Path $DownloadPath) {
 
 If ($DownloadType -eq "ZIP"){
 
+    # $tempname = $($FileNameFromURL -replace '.zip$', '')
+    # if ($tempname -eq $null -or $tempname -eq ""){
+
+    #     $ExtractedPath = "$WorkingDirectory\TEMP\Extracted\$TimeStamp.$tempname"
+
+    # } else {
+
+    #     $ExtractedPath = "$WorkingDirectory\TEMP\Extracted\$TimeStamp.$TargetAppName"
+
+    # }
+
+    
+    $ExtractedPath = "$WorkingDirectory\TEMP\Extracted\$TimeStamp.$fileName"
+
     # Extract the ZIP file to a temporary location
-    $ExtractedPath = "$WorkingDirectory\TEMP\Extracted\$TimeStamp.$($FileNameFromURL -replace '.zip$', '')"
+    Write-Log "SCRIPT: $ThisFileName | Extracting to path: $ExtractedPath"
 
     # Create the extracted path directory if it doesn't exist
     if (!(Test-Path $ExtractedPath)) {
