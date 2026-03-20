@@ -39,7 +39,7 @@
     "DownloadURL": "https://trials.adobe.com/AdobeProducts/APRO/Acrobat_HelpX/win32/Acrobat_DC_Web_x64_WWMUI.zip",
     "DownloadType": "ZIP",
     "InstallType": "MSI",
-    "ExtractedPathFromDownloadRoot": "Adobe Acrobat/ESD/AcroPro.msi",
+    "ExtractedPathFromDownloadRoot": "ESD/Adobe Acrobat/AcroPro.msi",
     "DisplayName": "Adobe Acrobat DC (64-bit)",
     "DetectMethod": "MSI_Registry",
     "UninstallType":"All"
