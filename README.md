@@ -7,12 +7,25 @@
 
 This writeup was written by AI and is just for proof of concept purposes.
 
-A comprehensive PowerShell automation framework designed for enterprise endpoint management and deployment. This suite provides centralized administrative scripts that automate software installation, configuration management, and system maintenance tasks across organizational environments.
+**Architecture:** A modular PowerShell-based enterprise deployment framework (~22K LOC across ~40 files) that overcomes native Intune limitations by decoupling payload hosting from orchestration.
+
+**Core flow:** Setup.ps1 (admin wizard) → generates Intune commands with Base64-encoded params → Git-Runner_TEMPLATE.ps1 (lightweight runner deployed to endpoints) → clones repo → calls target installer script → logs everything.
+
+**Key components:**
+
+- 5 general installers (WinGet, MSI, EXE, URL Download, JSON-App orchestrator)
+- 2 custom installers (Dell Command Update, MS Office - both multi-step with full clean)
+- Multi-method uninstaller (WinGet, MSI, Registry, WMI, AppX)
+- Detection scripts for Intune compliance (WinGet registry, MSI registry, AppX)
+- Printer management via Azure Blob-hosted JSON config + driver ZIPs
+- Azure Blob Storage integration (SAS token + AAD auth methods)
+- Security Manager with ACL enforcement and path validation
+- Comprehensive logging with severity levels, timestamp formatting, and filename sanitization
 
 
 ## Overview
 
-PowerDeploy is specifically architected for deployment through enterprise tools like **Microsoft Intune**, **Datto RMM**, and **SCCM**, with scripts designed to run in SYSTEM context on managed endpoints. The framework emphasizes reliability, consistency, and enterprise-scale deployment capabilities.
+PowerDeploy is specifically architected for deployment through enterprise tools like **Microsoft Intune**, **RMM agents**, and **SCCM**, with scripts designed to run in SYSTEM context on managed endpoints. The framework emphasizes reliability, consistency, and enterprise-scale deployment capabilities.
 
 
 ### Key Features
