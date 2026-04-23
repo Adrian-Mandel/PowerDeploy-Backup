@@ -263,18 +263,21 @@ Function Set-URL {
     # Write-Log "2 - PRODUCTION MODE: The resulting InTune application will utilize your organization's custom repository for PowerDeploy. Target URL: $CustomRepoURL"
     Write-Log ""
     Write-Log "1 - [PUBLIC-DEVELOPMENT]:" 
+    Write-Log "     - PUB/DEV"
     Write-Log "     - For TESTING purposes."
     Write-Log "     - Uses official public PowerDeploy repo (DEV branch)" 
     Write-Log "     - For testing public dev code if you are a public developer"
     Write-Log ""
 
     Write-Log "2 - [PUBLIC-TESTING]:"
+    Write-Log "     - PUB/MAIN"
     Write-Log "     - For TESTING purposes."
     Write-Log "     - Uses official public PowerDeploy repo (MAIN branch)"
     Write-Log "     - For testing the latest code before merging it into your own repo."
     Write-Log ""
 
     Write-Log "3 - [PRIVATE-DEVELOPMENT]:"
+    Write-Log "     - PRVT/DEV"
     Write-Log "     - For TESTING purposes."
     Write-Log "     - Uses your organization's custom PowerDeploy repository (DEV branch)"
     Write-Log "     - For testing YOUR dev code if you are a developer of your org repo."
@@ -282,6 +285,7 @@ Function Set-URL {
     Write-Log ""
 
     Write-Log "4 - [PRODUCTION]:"
+    Write-Log "     - PRVT/MAIN"
     Write-Log "     - For PRODUCTION deployments."
     Write-Log "     - Uses your organization's custom PowerDeploy repository (MAIN branch)"
     Write-Log "     - For deploying your latest stable code from your org repo."
@@ -1635,7 +1639,7 @@ Function Setup--Azure-WindowsApp{
     write-log "     - Name: follow your org naming conventions"
     Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
 
-    Write-Log "     - Description: Up to your descretion. Copying the description from Windows Store, App website, etc could be beneficial."
+    Write-Log "     - Description: Up to your descretion. You could use the current repo commit number. Copying the description from Windows Store, App website, etc could be beneficial."
     Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
     Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version."
     Write-Log "     - Category: Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"
@@ -3695,8 +3699,11 @@ Function Setup--Azure-Registry_Remediations_For_Org{
     Write-Log "UPLOAD REGISTRY REMEDIATION SCRIPTS TO INTUNE"
     Write-Log "==========================================================================================="
     Write-Log ""
-
+    Write-Log "The scripts have been created!" "SUCCESS"
+    Write-Log ""
     Write-Log "Next we are going to upload the detect and remediation script to InTune."
+    Write-Log "Detect Script location: $DetectScript"
+    Write-Log "Remediate Script location: $RemediationScript"
     Write-Log ""
 
     Write-Log "1. In InTune, navigate to: Device > Windows > Scripts and remediations"

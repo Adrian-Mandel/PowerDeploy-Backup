@@ -338,9 +338,35 @@ function Test-PathSyntaxValidity {
 
 function CheckAndInstall-Git {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Log "Git not found. Installing via Invoke-WebRequest..." "WARNING"
-        
+        Write-Log "Git not found. Acquiring mutex lock for installation..." "WARNING"
+
+        $mutexName = "Global\PowerDeploy_GitInstall"
+        $mutex = $null
+        $hasHandle = $false
+
         try {
+            $mutex = New-Object System.Threading.Mutex($false, $mutexName)
+
+            Write-Log "Waiting for mutex lock (timeout: 300s)..."
+            try {
+                $hasHandle = $mutex.WaitOne(300000)
+            }
+            catch [System.Threading.AbandonedMutexException] {
+                $hasHandle = $true
+                Write-Log "Acquired abandoned mutex - previous process likely crashed." "WARNING"
+            }
+
+            if (-not $hasHandle) {
+                throw "Timed out waiting for another Git installation to complete."
+            }
+
+            Write-Log "Mutex acquired. Checking Git again..."
+
+            # Re-check after acquiring mutex — another instance may have installed Git while waiting
+            if (Get-Command git -ErrorAction SilentlyContinue) {
+                Write-Log "Git was installed by another process while waiting."
+                return
+            }
 
             # Get latest release info from GitHub API
             $latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest"
@@ -348,59 +374,58 @@ function CheckAndInstall-Git {
             $downloadUrl = $asset.browser_download_url
             $installerPath = "$WorkingDirectory\TEMP\git-installer.exe"
 
-            if (!(Test-path "$WorkingDirectory\TEMP")){
+            if (!(Test-Path "$WorkingDirectory\TEMP")) {
                 Write-Log "Creating directory: $WorkingDirectory\TEMP"
                 New-Item -Path "$WorkingDirectory\TEMP" -ItemType "Directory" -Force
             }
-            
-            Write-Log "Downloading latest Git version: $($latestRelease.tag_name)" -ForegroundColor Green
+
+            Write-Log "Downloading latest Git version: $($latestRelease.tag_name)"
             Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath -UseBasicParsing
-            
-            Write-Log "Installing Git..." -ForegroundColor Green
+
+            Write-Log "Installing Git..."
             Start-Process -FilePath $installerPath -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
-            
+
             Write-Log "Attempting to do cleanup..."
-            if(test-path ($installerPath)){
+            if (Test-Path $installerPath) {
                 Remove-Item $installerPath -Force
                 Write-Log "Removed git installer file at: $installerPath"
-
-            
             } else {
                 Write-Log "Could not find git installer file at: ($installerPath). The script will not attempt to delete anything." "WARNING"
             }
-            
+
             # Refresh environment variables
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            
+
             # Final test
-            if ((Get-Command git -ErrorAction SilentlyContinue)){
-
+            if (Get-Command git -ErrorAction SilentlyContinue) {
                 Write-Log "Git installation complete!"
-
             } else {
-
                 Write-Log "Git is not working. Please investigate." "ERROR"
                 Exit 1
+            }
+        } catch {
+
+            Write-Log "SCRIPT: $ThisFileName | END | ERROR: Failed to install Git: $_" "ERROR"
+            exit 1
+
+        } finally {
+
+            if ($hasHandle -and $mutex) {
+
+                $mutex.ReleaseMutex()
 
             }
 
+            if ($mutex) {
 
-            #$Result = & $winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 #| Out-String
-            # ForEach ($line in $result) { Write-Log "WINGET: $line" } 
-
-            
-            # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-            # Write-Log "Git installed successfully!" "SUCCESS"
+                $mutex.Dispose()
+               
+            }
         }
-        catch {
-            Write-Log "SCRIPT: $ThisFileName | END | ERROR: Failed to install Git: $_" "ERROR"
-            exit 1
-        }
-    }
-    else {
+    } else {
         Write-Log "Git is already installed."
     }
+    
 }
 
 Function Set-GitSafeDirectory {

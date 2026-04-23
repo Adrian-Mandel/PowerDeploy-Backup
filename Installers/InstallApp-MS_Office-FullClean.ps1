@@ -24,7 +24,8 @@ $ThisFileName = $MyInvocation.MyCommand.Name
 #$RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $RepoRoot = Split-Path -Path $PSScriptRoot -Parent
 #$WorkingDirector = (Resolve-Path "$PSScriptRoot\..\..").Path
-$WorkingDirectory = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+
+# $WorkingDirectory = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 
 $LogRoot = "$WorkingDirectory\Logs\Installer_Logs"
@@ -67,13 +68,13 @@ if ($IncludedAppsArray -eq 'All') {
 
         ForEach ($IncludedApp in $IncludedAppsArray){
 
-            Write-Log "Checking if $PossibleApp matches $IncludedApp..."
+            Write-Host "Checking if $PossibleApp matches $IncludedApp..."
 
             if ($PossibleApp -Match $IncludedApp){
 
                 $Match = $True
 
-                Write-Log "Match!"
+                Write-Host "Match!"
 
             }
 
@@ -81,7 +82,7 @@ if ($IncludedAppsArray -eq 'All') {
 
         if ($Match -eq $False){
 
-            Write-Log "Adding $PossibleApp to exlcusion list"
+            Write-Host "Adding $PossibleApp to exlcusion list"
             [Array]$ExcludedApps += $PossibleApp
 
         }
@@ -340,294 +341,6 @@ Write-Log ""
 
 Write-Log "LOG PATH: $LogPath"
 
-<#
-Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | Attempt clean uninstall of pre-existing installations of Office"
-Write-Log "========================================"
-
-Try{ 
-
-    Write-Log "SCRIPT: $ThisFileName | Attempting to uninstall Microsoft Office"
-    # & $UninstallerScript -AppName "Microsoft_Office" -UninstallType "All" -UninstallString_DisplayName "Microsoft 365 Apps for enterprise - en-us" -WinGetID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
-    # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-    # & $UninstallerScript -AppName "Microsoft_Office" -UninstallType "All" -UninstallString_DisplayName "Microsoft 365 Apps for enterprise - en-us" -WinGetID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
-    # if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-    # I will expand these over time as I find more items to clean
-
-    # NOTE: Removed this section because WinGet uninstall of Office cannot be done silently this way
-    # Winget IDs to uninstall
-    # $WinGetIDToUninstall = @(
-
-    #     "Microsoft.Office"
-
-    # )
-
-    # foreach ($WinGetApp in $WinGetIDToUninstall) {
-
-    #     & $UninstallerScript -AppName "$WinGetApp" -UninstallType "Remove-App-WinGet" -WorkingDirectory $WorkingDirectory
-    #     if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-    # }
-
-
-
-
-
-
-
-
-
-
-    # TODO: The items below will fail because these methods so far are not able to uninstall Office products. Need to investigate why. Then I can implement this: https://learn.microsoft.com/en-us/troubleshoot/microsoft-365/admin/miscellaneous/assistant-office-uninstall
-
-    # apppackage cleanup
-    $AppPackagesToRemove = @(
-
-        "Microsoft.OfficePushNotificationUtility",
-        "Microsoft.Office.ActionsServer",
-        "Microsoft.MicrosoftOfficeHub"
-
-    )
-
-    Foreach ($AppPackage in $AppPackagesToRemove) {
-
-        $packages = Get-AppxPackage -Name $AppPackage -AllUsers -ErrorAction SilentlyContinue
-
-        foreach ($package in $packages) {
-
-            & $UninstallerScript -AppName "$AppPackage" -UninstallType "Remove-AppxPackage" -WorkingDirectory $WorkingDirectory
-            if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-        }
-    }
-
-    # CIM instance uninstall
-    $CIMtoUninstall = @(
-
-        "Office 16 Click-to-Run Extensibility Component"
-
-    )
-
-    foreach ($CIMApp in $CIMtoUninstall) {
-
-        & $UninstallerScript -AppName "$CIMApp" -UninstallType "Remove-App-CIM" -WorkingDirectory $WorkingDirectory
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-    }
-
-    # Regitry items to uninstall 
-    $RegistryItemsToUninstall = @(
-
-        "Office 16 Click-to-Run Extensibility Component",
-        "Aplicaciones de Microsoft 365 para empresas - es-mx",
-        "Microsoft 365 Apps for enterprise - en-us"
-
-    )
-
-    foreach ($RegApp in $RegistryItemsToUninstall) {
-
-        & $UninstallerScript -AppName "$RegApp" -UninstallType "All" -WorkingDirectory $WorkingDirectory
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-    }
-
-    Pause
-
-
-    Write-Log "SCRIPT: $ThisFileName | Pre-existing Office uninstall completed successfully." "SUCCESS"
-
-} Catch {
-
-    Write-Log "SCRIPT: $ThisFileName | END | Office Uninstall failed. Code: $_" "ERROR"
-    Exit 1
-
-}
-
-Write-Log "========================================"
-Write-Log "SCRIPT: $ThisFileName | 2. Download and extract Custom Setup Zip"
-Write-Log "========================================"
-
-Try {
-
-
-    ###
-
-    # Grab organization custom registry values and set as local variables
-    Try{
-
-    # Grab organization custom registry values
-        Write-Log "Retrieving organization custom registry values..." "INFO"
-        $ReturnHash = & $OrgRegReader_ScriptPath #| Out-Null
-
-        # Check the returned hashtable
-        if(($ReturnHash -eq $null) -or ($ReturnHash.Count -eq 0)){
-            Write-Log "No data returned from Organization Registry Reader script!" "ERROR"
-            Exit 1
-        }
-        #Write-Log "Organization custom registry values retrieved:"
-        foreach ($key in $ReturnHash.Keys) {
-            $value = $ReturnHash[$key]
-            Write-Log "   $key : $value" "INFO"
-        }    
-
-        # Turn the returned hashtable into variables
-        Write-Log "Setting organization custom registry values as local variables..." "INFO"
-        foreach ($key in $ReturnHash.Keys) {
-            Set-Variable -Name $key -Value $ReturnHash[$key] -Scope Local
-            Write-Log "Should be: $key = $($ReturnHash[$key])" "INFO"
-            $targetValue = Get-Variable -Name $key -Scope Local
-            Write-Log "Ended up as: $key = $($targetValue.Value)" "INFO"
-
-        }
-    } Catch {
-        Write-Log "Error retrieving organization custom registry values: $_" "ERROR"
-        Exit 1
-    }
-
-    ###
-
-
-    Write-Log "Now constructing URI for accessing private json..." "INFO"
-
-    $parts = $CustomSetupZipBlobPath -split '/', 2
-
-    $CustomSetupZip_ContainerName = $parts[0]      
-    $CustomSetupZip_BlobName = $parts[1]
-
-    #$ApplicationContainerSASkey
-    $SasToken = $ApplicationContainerSASkey
-    #$SasToken
-
-    #pause
-
-    Write-Log "Final values to be used to build ApplicationData.json URI:" "INFO"
-    Write-Log "StorageAccountName: $StorageAccountName" "INFO"
-    Write-Log "SasToken: $SasToken" "INFO"
-    Write-Log "CustomSetupZip_ContainerName: $CustomSetupZip_ContainerName" "INFO"
-    Write-Log "CustomSetupZip_BlobName: $CustomSetupZip_BlobName" "INFO"
-    $CustomSetupZip_Uri = "https://$StorageAccountName.blob.core.windows.net/applications/$CustomSetupZip_ContainerName/$CustomSetupZip_BlobName"+"?"+"$SasToken"
-
-    Try{
-
-
-        Write-Log "Beginning download..." "INFO"
-        & $DownloadAzureBlobSAS_ScriptPath -WorkingDirectory $WorkingDirectory -BlobName $CustomSetupZip_BlobName -BlobSASurl $CustomSetupZip_Uri
-        if($LASTEXITCODE -ne 0){Throw $LASTEXITCODE }
-
-        ### Ingest the private JSON data
-
-        # Write-Log "Parsing Private JSON" "INFO"
-        # $PrivateJSONpath = "$WorkingDirectory\TEMP\Downloads\$CustomSetupZip_BlobName"
-        # $JSONpath = $PrivateJSONpath
-
-        # $PrivateJSONdata = ParseJSON -JSONpath $JSONpath
-        # $list2 = $PrivateJSONdata.applications.ApplicationName 
-
-        # Extract the zip to working directory
-        $DownloadedZipPath = "$WorkingDirectory\TEMP\Downloads\$CustomSetupZip_BlobName"
-        $ExtractedFolderPath = "$WorkingDirectory\TEMP\Downloads\CustomSetupZip_BlobName_EXTRACTED"
-
-        if (Test-Path $ExtractedFolderPath) {
-            Write-Log "Extracting downloaded Office setup zip to $ExtractedFolderPath"
-            Expand-Archive -Path $DownloadedZipPath -DestinationPath $ExtractedFolderPath -Force
-        } else {
-            Write-Log "Creating extraction folder at $ExtractedFolderPath"
-            New-Item -ItemType Directory -Path $ExtractedFolderPath -Force | Out-Null
-            Write-Log "Extracting downloaded Office setup zip to $ExtractedFolderPath"
-            Expand-Archive -Path $DownloadedZipPath -DestinationPath $ExtractedFolderPath -Force
-        }
-
-
-    }catch{
-
-        Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | END | Accessing custom Office zip from private share failed. Exit code returned: $_" "ERROR"
-        Exit 1
-        
-    }
-
-
-
-} Catch {
-
-    Write-Log "SCRIPT: $ThisFileName | END | .NET install failed. There may be another version of .NET 8 Desktop Runtime already installed preventing rollback to 8.0.15. Code: $_" "ERROR"
-    Exit 1
-
-}
-
-if ($InstallMode -eq "WinGet") {
-
-    Write-Log "========================================"
-    Write-Log "SCRIPT: $ThisFileName | 3. Install Office using WinGet"
-    Write-Log "========================================"
-
-    Try {
-
-        Write-Log "SCRIPT: $ThisFileName | Attempting to install DCU"
-        #Powershell.exe -executionpolicy remotesigned -File $WinGetInstallerScript -AppName "DellCommandUpdate" -AppID "Dell.CommandUpdate" -WorkingDirectory $WorkingDirectory
-        & $WinGetInstallerScript -AppName "Microsoft_Office" -AppID "Microsoft.Office" -WorkingDirectory $WorkingDirectory
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-
-    } Catch {
-
-        Write-Log "SCRIPT: $ThisFileName | END | Failed to install DCU. Code: $_" "ERROR"
-        Exit 1
-
-
-    }
-
-} else {
-
-    Write-Log "========================================"
-    Write-Log "SCRIPT: $ThisFileName | 3. Install Office using Custom Setup Zip"
-    Write-Log "========================================"
-
-    Try {
-
-        Write-Log "SCRIPT: $ThisFileName | Attempting to install Office using Custom Setup Zip"
-        # Powershell.exe -executionpolicy remotesigned -File $WinGetInstallerScript -AppName "Microsoft_Office" -AppID "Microsoft.Office" -WorkingDirectory $WorkingDirectory -CustomSetupZipBlobPath $CustomSetupZipBlobPath
-        
-        Push-Location
-
-        Set-Location -Path $ExtractedFolderPath
-
-        # Run the setup.exe with appropriate arguments
-        $SetupExePath = Join-Path -Path $ExtractedFolderPath -ChildPath "setup.exe"
-
-        # $SetupArguments = "/download $ConfigFileName"
-        Write-Log "SCRIPT: $ThisFileName | Running setup.exe with arguments: /download $ConfigFileName"
-        $output = & $SetupExePath /download $ConfigFileName
-        foreach ($line in $output) {Write-Log "OFFICE_SETUP: $line"}
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-        Write-Log ""
-        # $SetupArguments = "/configure $ConfigFileName"
-        Write-Log "SCRIPT: $ThisFileName | Running setup.exe with arguments: /configure $ConfigFileName"
-        $output = & $SetupExePath /configure $ConfigFileName
-        foreach ($line in $output) {Write-Log "OFFICE_SETUP: $line"}
-        if ($LASTEXITCODE -ne 0) { throw "$LASTEXITCODE" }
-        Write-Log ""
-
-        Pop-Location
-
-        # Test the installation
-
-        & $AppDetectionScriptPath -AppToDetect "Microsoft_Office" -DisplayName "Microsoft 365 Apps for enterprise - en-us" -WorkingDirectory $WorkingDirectory -DetectMethod "MSI_Registry"
-        if ($LASTEXITCODE -ne 0) { throw "Application detection failed" } else {
-
-            Write-Log "SCRIPT: $ThisFileName | Office installation verified successfully." "SUCCESS"
-
-        }
-
-    } Catch {
-
-        Write-Log "SCRIPT: $ThisFileName | END | Failed to install Office using Custom Setup Zip. Code: $_" "ERROR"
-        Exit 1
-    }
-
-}
-
-#>
-
 ###
 
 # Define a temporary working directory
@@ -635,8 +348,7 @@ $workDir = "$WorkingDirectory\TEMP\Downloads\Office\$(Get-Date -Format 'yyyyMMdd
 if (!(Test-Path $workDir)) { New-Item -ItemType Directory -Path $workDir -Force | Out-Null }
 $setupExe = "$workDir\setup.exe"
 
-# Download the Office Deployment Tool (using Microsoft's permalink)
-$odtUrl = "https://go.microsoft.com/fwlink/p/?LinkID=626065"
+
 $odtExe = "$workDir\odt_installer.exe"
 
 Write-Log "Downloading the Office Deployment Tool..."
@@ -739,6 +451,8 @@ if ($Check -eq $True){
 
 }
 
+# TODO: Kill all Office/ Office install processes
+
 ### Uninstall Office
 if ($Check -eq $True){
 
@@ -760,7 +474,8 @@ $xmlContent = @"
     # Execute the uninstallation
 
     Write-Log "Uninstalling Microsoft Office silently. This may take a few minutes..." "WARNING"
-    # TODO: introduce a timer?
+
+    # TODO: introduce a timer
 
     # Run setup.exe with the uninstall config and wait for it to finish
     Try {
@@ -798,6 +513,9 @@ $xmlContent = @"
 
 }
 
+# TODO: Run another check
+# TODO: If check is positive, run another install method
+
 ### Install Office
 
 Write-Log "Now moving on to install office"
@@ -812,7 +530,7 @@ $xmlLines += '<Configuration>'
 $xmlLines += '  <Add OfficeClientEdition="64" Channel="Current">'
 
 # Teams Logic
-if ($AppsToInstall -notcontains "Teams"){
+if ($IncludedApps -notcontains "Teams" -or $IncludedApps -ne "All"){
     $xmlLines += '    <Product ID="O365ProPlusEEANoTeamsRetail">'
 } else {
     $xmlLines += '    <Product ID="O365ProPlusRetail">'
@@ -846,18 +564,19 @@ Write-Log "Installing Microsoft Office silently. This may take a few minutes..."
 # Run setup.exe with the uninstall config and wait for it to finish
 Try {
 
+    # TODO: Introduce a timer
+
     Start-Process -FilePath $setupExe -ArgumentList "/configure `"$xmlPath`"" -Wait -NoNewWindow
 
     # Hunt down the generated logs and move them to your custom folder
     # ODT names logs starting with the machine name (e.g., MACHINENAME-20260318-1200.log)
     $tempPaths = @($env:TEMP, "$env:windir\Temp")
     $LogFolder = "$LogRoot\Installer_Logs"
-    Get-ChildItem -Path $tempPaths -Filter "$env:COMPUTERNAME*.log" -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -ge (Get-Date).AddMinutes(-60) } |
+    Get-ChildItem -Path $tempPaths -Filter "$env:COMPUTERNAME*.log" -ErrorAction SilentlyContinue | `
+        Where-Object { $_.LastWriteTime -ge (Get-Date).AddMinutes(-60) } | `
         Copy-Item -Destination $LogFolder -Force
 
-    Write-Host "Installation complete. Logs moved to $LogFolder"
-
+    Write-Log "Installation complete. Logs moved to $LogFolder"
 
 } Catch {
 
