@@ -353,7 +353,7 @@ function CheckAndInstall-Git {
             }
             catch [System.Threading.AbandonedMutexException] {
                 $hasHandle = $true
-                Write-Log "Acquired abandoned mutex — previous process likely crashed." "WARNING"
+                Write-Log "Acquired abandoned mutex - previous process likely crashed." "WARNING"
             }
 
             if (-not $hasHandle) {
@@ -403,23 +403,29 @@ function CheckAndInstall-Git {
                 Write-Log "Git is not working. Please investigate." "ERROR"
                 Exit 1
             }
-        }
-        catch {
+        } catch {
+
             Write-Log "SCRIPT: $ThisFileName | END | ERROR: Failed to install Git: $_" "ERROR"
             exit 1
-        }
-        finally {
+
+        } finally {
+
             if ($hasHandle -and $mutex) {
+
                 $mutex.ReleaseMutex()
+
             }
+
             if ($mutex) {
+
                 $mutex.Dispose()
+               
             }
         }
-    }
-    else {
+    } else {
         Write-Log "Git is already installed."
     }
+    
 }
 
 Function Set-GitSafeDirectory {
