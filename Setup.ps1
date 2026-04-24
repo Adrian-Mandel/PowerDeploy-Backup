@@ -1640,6 +1640,7 @@ Function Setup--Azure-WindowsApp{
     Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
 
     Write-Log "     - Description: Up to your descretion. You could use the current repo commit number. Copying the description from Windows Store, App website, etc could be beneficial."
+    Write-Log "         - Sample with your commit #: ""PowerDeploy via $InstallMethod"""
     Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
     Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version."
     Write-Log "     - Category: Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"
