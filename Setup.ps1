@@ -611,7 +611,7 @@ function Setup--Azure-Printer{
     Write-Log ""
     Write-Log "This will help ensure that all details are correct and the installation process works as expected."
     Write-Log ""
-    Write-Log "Would you like to test by installing this printer from the JSON on this local machine?" "WARNING"
+    Write-Log "Would you like to TEST by installing this printer from the JSON on this local machine?" "WARNING"
     $Answer = Read-Host "(y/n)"
     Write-Log ""
 
@@ -1195,7 +1195,7 @@ Function Setup--Azure-WindowsApp{
 
 
 
-    Write-Log "Would you like to test by having this script install the app based on the JSON configuration? (y/n)" "WARNING"
+    Write-Log "Would you like to TEST by having this script install the app based on the JSON configuration? (y/n)" "WARNING"
     $Answer = Read-Host "y/n"
     Write-Log ""
 
@@ -1620,6 +1620,31 @@ Function Setup--Azure-WindowsApp{
     } else {
             $PotentialAppInTuneName = "APP: $ApplicationName [$Global:DeployMode]"
     }
+    # Specs of endpoint target repo
+        # $Global:DeployMode
+        # $RepoUrl
+        # $Global:RepoBranch
+
+    # Specs of working repo
+        # Get current git commit ver
+        $CurrentGitVer = git rev-parse --short HEAD 2>&1
+
+        $CurrentGitBranch = git branch --show-current
+
+        # Check if there are uncommited changes
+        $Changes = git status; if($Changes -match "nothing to commit") {
+            
+            #nothing to worry about, up to date
+            
+        }else{
+            
+            #uncommitted changes
+            $CurrentGitVer = "$CurrentGitVer.UnstagedChanges"
+
+        }
+
+        $CurrentGitURL = git remote get-url origin
+
 
     Write-Log ""
     Write-Log "InTune Win32 Application creation instructions:" "WARNING"
@@ -1639,8 +1664,12 @@ Function Setup--Azure-WindowsApp{
     write-log "     - Name: follow your org naming conventions"
     Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
 
+                    $Global:DeployMode = "PUBLIC-DEVELOPMENT"
+                $RepoUrl = $OfficialPublicRepoURL
+                $Global:RepoBranch = "dev"
+
     Write-Log "     - Description: Up to your descretion. You could use the current repo commit number. Copying the description from Windows Store, App website, etc could be beneficial."
-    Write-Log "         - Sample with your commit #: ""PowerDeploy via $InstallMethod"""
+    Write-Log "         - Sample Description with your commit #: `n`nPowered by PowerDeploy `n`nInstallMethod: $InstallMethod `nEndPoint Deployment Mode:$Global:DeployMode `nEndpoint Deployment Environment:`n   Git URL: $RepoUrl `n   Git Branch: $Global:RepoBranch `nThis Win32App Development Environment:`n   Git URL: $CurrentGitURL `n   Git Branch: $CurrentGitBranch `n   Git Commit Ver: $CurrentGitVer`n"
     Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
     Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version."
     Write-Log "     - Category: Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"
