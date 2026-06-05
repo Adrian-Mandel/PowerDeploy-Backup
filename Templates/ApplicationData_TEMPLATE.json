@@ -95,6 +95,11 @@
     "WinGetID": "9PMMSR1CGPWG"
   }, 
   {
+    "ApplicationName": "Logi Options+",
+    "InstallMethod": "WinGet",
+    "WinGetID": "Logitech.OptionsPlus"
+  },
+  {
     "ApplicationName": "MSI-Private-AzureBlob_Example",
     "InstallMethod": "MSI-Private-AzureBlob",
     "MSIPathFromContainerRoot": "zz/zz/install.msi",
