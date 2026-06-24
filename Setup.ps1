@@ -759,12 +759,18 @@ function Setup--Azure-Printer{
 
         }
 
+    if ($Department){
+        $PRn = "PRINTER - $DEPARTMENT"
+    } else {
+        $PRn = "PRINTER"
+    }
+
     if ($Global:DeployMode -eq "Production"){
 
-            $PotentialPrinterInTuneName = "PRINTER: $PrinterName"
+            $PotentialPrinterInTuneName = "$PRn : $PrinterName"
 
     } else {
-            $PotentialPrinterInTuneName = "PRINTER: $PrinterName [$Global:DeployMode]"
+            $PotentialPrinterInTuneName = "$PRn : $PrinterName [$Global:DeployMode]"
     }
         
     Clear
@@ -798,8 +804,22 @@ function Setup--Azure-Printer{
     Write-Log " 3 - APP INFORMATION:"
     write-log "     - Name: follow your org naming conventions."
     Write-Log "         - What I recommend: ""$PotentialPrinterInTuneName"""
-    Write-Log "     - Description: I recommend including printer name, IP, driver version, location, etc following a common convention for you organization."
+    Write-Log "     - Description: I recommend including printer name, IP, driver version, location, etc following a common convention for you organization. Example:"
+
+    write-host "
+Department: $DEPARTMENT `n
+Asset: 21036 `n
+Location: Next to Troy's office `n
+`n
+---`n
+`n
+PowerDeploy details:`n
+PowerDeploy--SantaCruzCOE-Fork`n
+Version: `n
+Verified: `n"
+
     Write-Log "     - Publisher: Your organization name"
+    Write-Log "     - Version: (commit version)"
     Write-Log "     - Category: Printers (Create this category if you do not already have, it will take some time to show up: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps)"
     Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
     Write-Log ""   

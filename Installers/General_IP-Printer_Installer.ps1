@@ -428,6 +428,8 @@ if($GetJSON -eq $True) {
                 if ($var -eq "" -or $var -eq $null){
 
                     Write-Log "Variable missing or empty after JSON parse: $var" "ERROR"
+                    Write-Log 'Required vars: "$PortName","$PrinterIP","$DriverName","$INFFile","$DriverZip' "ERROR"
+
                     Exit 1
 
                 } else {
