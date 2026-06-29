@@ -4,79 +4,89 @@
 
 # PowerDeploy
 
-> **Note:** Portions of this README were drafted with AI assistance. It aims to describe the project accurately, but treat it as an evolving overview rather than exhaustive reference documentation.
+**Retire your on-premises print server — and deploy every app and printer from the cloud — without buying new hardware, standing up a new server, or weakening your security.**
 
-**PowerDeploy is a PowerShell framework for packaging, deploying, and managing applications and network printers across cloud-managed Windows fleets (Entra ID + Intune).**
+PowerDeploy lets a cloud-managed Windows environment (Microsoft Entra ID + Intune) deliver applications and network printers to every device with **no on-premises server, no special hardware, and no new vendor or license.** It runs inside the Microsoft cloud you already pay for.
 
-It turns *"I need to deploy this app / this printer"* into a finished, reliable Intune package in minutes — and keeps your entire catalog of deployable assets in version-controlled configuration you actually own, instead of scattered across dozens of hand-built, hard-to-update Intune entries.
+---
 
-Two ideas make that work:
+## Why it exists
 
-- **A catalog, not a pile of one-off packages.** Every app and printer is a single entry in a JSON manifest. Add an entry and a guided wizard builds the Intune Win32 package, the install/uninstall commands, and the detection script for you — after letting you test the install on a real machine first.
-- **Payloads are pulled at run time, not shipped through Intune.** Intune carries only a small runner. The actual installers come from WinGet or your Azure Blob Storage, and the deployment scripts come from Git, at the moment the endpoint runs. That removes Intune's package-size ceiling, and changing how something deploys means editing a script or one line of JSON — never re-wrapping and re-uploading an app.
+Moving identity and devices to the cloud is mainstream now, and it mostly works. **Printing is where that path tends to break.**
 
-It runs **both with and without the Company Portal**: the same definition is available as an assigned / self-service app in Intune *and* runnable on demand by a technician directly on the device.
+Microsoft's cloud printing service, **Universal Print**, generally hands you two bad doors:
 
-Built for teams that have gone cloud-first and hit the walls — apps that fail to install at scale, printers that Microsoft's own cloud service can't actually deploy, and a packaging cycle measured in hours per change.
+- **Replace your printers** with a short list of approved models, or
+- **Keep the printers you own** by putting a connector *server* back in your building and loosening security settings to register them.
+
+Neither is a trade most organizations can comfortably defend — and the workaround reintroduces the very on-prem infrastructure that going cloud was meant to eliminate. *(In our own fleet of ~150 printers — mostly recent HP hardware — exactly **one** qualified for the clean path.)*
+
+The rest of the industry settled on a **third door**: deliver each printer to a computer the same way you deliver any normal application, through Intune — **no server at all.** That approach is standard and proven. The catch is that doing it by hand is slow to build, opaque to troubleshoot, and doesn't scale. **PowerDeploy is that proven approach, engineered to be fast, reliable, and manageable** — for printers and for ordinary software alike.
+
+### What you get
+
+- **Retire the on-prem print server** without replacing a single printer.
+- **No new server, hardware, vendor, or license** — it uses the Intune and Azure storage you already have.
+- **Migrate at your own pace.** Keep the existing print server running and move printers over one at a time (about 5–10 minutes each). No big-bang cutover to gamble on.
+- **Deployments you can actually troubleshoot**, backed by a documented, version-controlled catalog you own — instead of dozens of hand-built, hard-to-update entries scattered across Intune.
+
+PowerDeploy has run in production with a pilot group for roughly **seven months** and is now in wider rollout.
+
+> The sections below move from the big picture into full technical depth. Skim the top; dig in as far as you need.
 
 ---
 
 ## Table of contents
 
-- [The problem it solves](#the-problem-it-solves)
+- [What you can do with it](#what-you-can-do-with-it)
 - [Printing: solving what Universal Print can't](#printing-solving-what-universal-print-cant)
 - [Packaging and managing your assets](#packaging-and-managing-your-assets)
-- [What you can do with it](#what-you-can-do-with-it)
 - [How it works (under the hood)](#how-it-works-under-the-hood)
   - [The runner pattern](#the-runner-pattern)
   - [End-to-end flow](#end-to-end-flow)
   - [Where things live: scripts vs. payloads vs. config](#where-things-live-scripts-vs-payloads-vs-config)
 - [With and without the Company Portal](#with-and-without-the-company-portal)
 - [Components](#components)
-- [Repository layout](#repository-layout)
 - [Configuration model](#configuration-model)
 - [Deployment modes (public vs. private fork)](#deployment-modes-public-vs-private-fork)
 - [Logging](#logging)
 - [Security](#security)
+- [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
 - [License](#license)
 - [Support](#support)
 
 ---
 
-## The problem it solves
+## What you can do with it
 
-Native Intune is a capable MDM, but several day-to-day deployment tasks are slow, unreliable, or awkward. PowerDeploy was built to address the specific pain points an IT team actually hits:
+- **Deploy applications** via WinGet, MSI (from Azure Blob or a direct URL), EXE, direct URL download, or fully custom installer scripts.
+- **Deploy network (IP) printers** with centrally managed driver packs and per-printer JSON configuration.
+- **Uninstall almost anything** through a single multi-method uninstaller.
+- **Generate the Intune `.intunewin` package, install/uninstall commands, and detection script** automatically from a guided wizard.
+- **Push organization configuration** (storage account, container keys, repo settings) to endpoints via Intune remediation scripts.
+- **Manage the Windows registry and optional features** with safe, ACL-aware operations.
+- **Run everything locally, on demand** for testing and urgent fixes — independent of the management tool's sync schedule.
 
-| Pain point | What PowerDeploy does instead |
-|---|---|
-| **Win32 app packaging is slow to iterate.** Every script change means re-wrapping, re-uploading, and waiting on sync cycles. | Endpoints pull scripts live from Git. Fix a script, commit, and the next run uses it — no re-upload of the Intune app. |
-| **Large/complex installers fail often** through native delivery. | Only a small runner is delivered through Intune. The actual payload comes from WinGet, Azure Blob Storage, or a direct URL at run time. |
-| **The Intune Store catalog is limited and often outdated.** | Full real-time access to the WinGet catalog, with handling for the quirks of running WinGet in SYSTEM context. |
-| **Update management is clunky.** | WinGet apps can be kept current via [Winget-AutoUpdate](https://github.com/Romanitho/Winget-AutoUpdate); custom apps update by editing the JSON/Blob source, not the Intune entry. |
-| **Logging is scattered and vague.** | Every script writes structured, timestamped, severity-tagged logs to a predictable location under `C:\ProgramData`. |
-| **No way to trigger a deployment on demand.** | Scripts live locally on the endpoint and can be launched immediately for testing or urgent installs — no waiting on a sync cycle. |
-| **Finding uninstall strings is a treasure hunt.** | A multi-method uninstaller resolves removal automatically (WinGet, MSI, registry, CIM/WMI, AppX). |
+Each deployment is **available both with and without the Company Portal**: the same definition can be assigned as a self-service or required app in Intune *and* run on demand by a technician directly on the device.
 
 ---
 
 ## Printing: solving what Universal Print can't
 
-Moving to a cloud-based user directory (Entra ID) and device management (Intune) is mainstream now and generally works well. **Printers are where that path tends to break down.** Microsoft's cloud answer is **Universal Print**, and if you've evaluated it for a real environment, you've likely run into the same walls we did:
+Microsoft's cloud answer for printing is **Universal Print**, and if you've evaluated it for a real environment you've likely hit the same walls we did:
 
-- **Hardware support is the exception, not the rule.** Universal Print requires printers with native support. In our fleet of ~150 printers — most of them modern and recently in production — only about **10% qualify**. We buy primarily HP, and exactly **one** of our printers supports it natively. Going all-in on UP would mean buying from a narrow approved list and replacing hardware that works perfectly well.
-- **The workaround defeats the purpose.** Microsoft's bridge for making non-UP printers work requires an **on-premises connector server** — reintroducing the very on-prem print infrastructure that going cloud was supposed to eliminate, and it doesn't work well even then.
+- **Hardware support is the exception, not the rule.** Universal Print requires printers with native support. In our fleet of ~150 printers — most modern and recently in production — only about **10% qualify**, and of the HP printers we standardize on, exactly **one** supports it natively. Going all-in would mean buying from a narrow approved list and replacing hardware that works perfectly well.
+- **The workaround defeats the purpose.** Microsoft's bridge for non-UP printers requires an **on-premises connector server** — reintroducing the on-prem print infrastructure that going cloud was supposed to retire.
 - **It asks you to weaken your security posture.** Registering printers requires loosening settings many organizations (us included) are unwilling to loosen.
 - **Deployment is unreliable and hard to troubleshoot**, even where the hardware is supported.
 
-The net result in our environment: **a 0% success rate deploying printers through Universal Print** — not for lack of trying, but because the trade-offs simply don't hold up.
-
 **PowerDeploy replaces the print server, not the printers.** It deploys directly to standard IP printers with no on-prem server, no hardware allow-list, and no change to your security posture:
 
-- Driver packs live as **version-managed files in your Azure Blob Storage** — a centrally managed driver library, not drivers embedded in dozens of packages.
+- Driver packs live as **version-managed files in your Azure Blob Storage** — a central driver library, not drivers embedded in dozens of packages.
 - Each printer is **one entry** in a `PrinterData.json` manifest: name, IP/port, and which driver to use.
-- At deploy time the endpoint pulls the right driver pack, stages it with `pnputil`, and creates the port and print queue — in SYSTEM context, fully unattended.
-- Define a printer once and it's deployable everywhere: available through the **Company Portal** for assigned devices *and* installable **on demand** by a technician.
+- At deploy time the endpoint pulls the right driver pack, stages it with `pnputil`, and creates the port and print queue — fully unattended.
+- Define a printer once and it's deployable everywhere: assignable through the **Company Portal** *and* installable **on demand** by a technician.
 
 The result is the cloud printer management Universal Print promised — that actually works with the printers you already own.
 
@@ -84,14 +94,16 @@ The result is the cloud printer management Universal Print promised — that act
 
 ## Packaging and managing your assets
 
-Most of the recurring cost of fleet deployment isn't the install itself — it's the **packaging** and the **ongoing upkeep**. PowerDeploy is built to make both cheap, and that's the core of what it offers.
+Most of the recurring cost of fleet deployment isn't the install itself — it's the **packaging** and the **ongoing upkeep**. PowerDeploy is built to make both cheap.
 
 **Packaging is a guided, minutes-long task.** Run [`Setup.ps1`](Setup.ps1), pick (or define) an app or printer, and the wizard:
 
 - optionally **test-installs it on the local machine first**, so you validate the configuration before you ship it;
-- builds the **`.intunewin` package** (wrapping the runner) for you — no manual `IntuneWinAppUtil` runs;
-- generates the **install command, uninstall command, and detection script**, with parameters Base64-encoded for clean Intune compatibility — no hand-writing detection logic or guessing silent-install switches;
-- prints exactly what to paste into each field of the Intune Win32 app form.
+- **builds the `.intunewin` package for you** — [`Make-InTuneWin`](Setup.ps1) auto-downloads Microsoft's `IntuneWinAppUtil.exe` and runs it silently, so you never touch the prep tool by hand;
+- generates the **install command, uninstall command, and detection script** — with parameters Base64-encoded for clean Intune compatibility, written to text files and copied to your clipboard;
+- **prints exactly what to paste** into each field of the Intune Win32 app form.
+
+> **What's automated vs. manual:** PowerDeploy automates the *packaging and artifact generation*. Creating and uploading the Win32 app in the Intune portal remains a deliberate, **guided manual step** — the wizard walks you through it click by click.
 
 **Management is editing a catalog, not maintaining packages.** Your deployable assets live in JSON manifests — a shared public catalog in this repo and your organization's private catalog in Azure Blob:
 
@@ -104,18 +116,6 @@ This is the difference between maintaining *dozens of brittle, individually-buil
 
 ---
 
-## What you can do with it
-
-- **Deploy applications** via WinGet, MSI, EXE, direct URL download, or fully custom installer scripts.
-- **Deploy network (IP) printers** with centrally managed driver packs and per-printer JSON config.
-- **Uninstall almost anything** through a single multi-method uninstaller.
-- **Generate Intune Win32 packages, install/uninstall commands, and detection scripts** automatically from a guided wizard.
-- **Push organization configuration** (storage account, container keys, repo settings) to endpoints via Intune remediation scripts.
-- **Manage Windows registry and optional features** with safe, ACL-aware operations.
-- **Run everything locally on demand** for testing and urgent fixes, independent of the management tool's schedule.
-
----
-
 ## How it works (under the hood)
 
 ### The runner pattern
@@ -124,47 +124,47 @@ The central design decision is **decoupling orchestration from payload hosting**
 
 - **Orchestration** (the *logic* — what to install and how) lives in this Git repository.
 - **Payloads** (the *bits* — installers, driver ZIPs) live in WinGet or your Azure Blob Storage.
-- **The management tool** (Intune/RMM/SCCM) only ever holds [`Git-Runner_TEMPLATE.ps1`](Templates/Git-Runner_TEMPLATE.ps1) — a small, rarely-changing launcher — wrapped in a `.intunewin` package.
+- **The management tool** (Intune / RMM / SCCM) only ever holds [`Git-Runner_TEMPLATE.ps1`](Templates/Git-Runner_TEMPLATE.ps1) — a small, rarely-changing launcher — wrapped in a `.intunewin` package.
 
-When an endpoint runs the package (in **SYSTEM** context), the runner:
+When an endpoint runs the package (intended to run under **SYSTEM**, e.g. when triggered by Intune), the runner:
 
-1. **Ensures Git is present** — installs Git for Windows if missing, guarded by a named mutex so parallel deployments don't collide.
-2. **Clones or pulls** the target repo into the working directory (e.g. `C:\ProgramData\PowerDeploy--<mode>\PowerDeploy-Repo`), stashing any local drift first.
+1. **Ensures Git is present** — installs Git for Windows if missing, fetching the latest 64-bit release from the git-for-windows API and installing it silently. The install is guarded by a named mutex (`Global\PowerDeploy_GitInstall`, 300s timeout, with abandoned-mutex recovery) so parallel deployments don't collide.
+2. **Clones or pulls** the target repo into its working directory (`<WorkingDirectory>\<RepoNickName>` — both supplied as parameters; for real deployments the working directory is the mode-specific folder under `C:\ProgramData`, e.g. `C:\ProgramData\PowerDeploy--PRODUCTION`). Local drift is stashed first (optional, on by default), and a missing `.git` is **self-healed** via init/fetch/reset rather than failing.
 3. **Decodes its parameters** — Intune-friendly Base64-encoded JSON is decoded into a normal PowerShell parameter string.
-4. **Locks down permissions** — runs [`Security_Manager.ps1`](Other_Tools/Security_Manager.ps1) to enforce strict ACLs (SYSTEM + Administrators only) on the working folders and the `HKLM\SOFTWARE\PowerDeploy` registry hive.
-5. **Invokes the target script** (an installer, uninstaller, printer install, etc.) with the decoded parameters, capturing every line of output.
-6. **Logs and exits** with a meaningful exit code that Intune can act on.
+4. **Locks down permissions** — runs [`Security_Manager.ps1`](Other_Tools/Security_Manager.ps1) to enforce strict ACLs (SYSTEM + Administrators only) on a fixed set of folders (the Intune log folder, the repo root, and the working directory's `TEMP` and `LOGS` folders), and delegates registry lock-down of `HKLM\SOFTWARE\PowerDeploy` to [`Configure-Registry.ps1`](Configurators/Configure-Registry.ps1). This runs **before and after** the target script as a tamper check.
+5. **Invokes the target script** (an installer, uninstaller, printer install, etc.) with the decoded parameters.
+6. **Logs execution and propagates a meaningful exit code** that Intune can act on.
 
 Because the runner *pulls the latest commit each time it runs*, iterating on a deployment is just editing a script and committing — the Intune app entry never changes.
 
 ### End-to-end flow
 
 ```
-TECHNICIAN (Setup.ps1, run as admin)
+TECHNICIAN (Setup.ps1, run elevated)
    │
-   ├─ Reads org config from HKLM\SOFTWARE\PowerDeploy
-   ├─ Picks a deployment mode (dev/test/prod → which repo & branch)
+   ├─ Reads org config via OrganizationCustomRegistryValues-Reader (HKLM\SOFTWARE\PowerDeploy)
+   ├─ Picks a deployment mode (public/private × dev/main → which repo & branch)
    ├─ Selects an app/printer from JSON (or adds a new one)
-   ├─ (optional) Tests the install locally on this machine
+   ├─ (optional) Test-installs locally on this machine
    │
    ├─ Make-InTuneWin  ── wraps Git-Runner_TEMPLATE.ps1 ──► .intunewin
    └─ Generate_Install-Command.ps1 ──► install/uninstall commands
                                        + detection script
-                                       (params Base64-encoded)
+                                       (params Base64-encoded, copied to clipboard)
                  │
                  ▼
-        Technician uploads to Intune as a Win32 app
+        Technician creates the Win32 app in Intune (guided, manual)
                  │
                  ▼
-ENDPOINT (SYSTEM context, triggered by Intune or on demand)
+ENDPOINT (SYSTEM context, triggered by Intune or run on demand)
    │
    └─ Git-Runner_TEMPLATE.ps1
         ├─ install Git (mutex-guarded) → clone/pull repo
         ├─ decode Base64 params
-        ├─ Security_Manager → lock down ACLs
+        ├─ Security_Manager → lock down ACLs (before & after)
         └─ run target script, e.g. General_JSON-App_Installer.ps1
                  │
-                 ├─ WinGet            → Microsoft Store / WinGet catalog
+                 ├─ WinGet            → WinGet catalog
                  ├─ MSI / EXE / URL   → Azure Blob (SAS or AAD) or direct URL
                  └─ Custom_Script     → Office, Dell Command Update, .NET, …
 ```
@@ -186,7 +186,7 @@ ENDPOINT (SYSTEM context, triggered by Intune or on demand)
 The same deployment serves two execution paths from one definition:
 
 - **With Company Portal (managed):** The Win32 app generated by the wizard is assigned in Intune. End users install it self-service from the Company Portal, or it's pushed as required — with a detection script reporting compliance.
-- **Without Company Portal (on demand):** Because the repo and scripts are cloned locally into `C:\ProgramData`, a technician can run `Setup.ps1` and install the same app or printer immediately — useful for testing a new package or fixing a machine right now, with no sync-cycle wait.
+- **Without Company Portal (on demand):** Because the repo and scripts are cloned locally under `C:\ProgramData`, a technician can run `Setup.ps1` and install the same app or printer immediately — useful for testing a new package or fixing a machine right now, with no sync-cycle wait.
 
 ---
 
@@ -194,37 +194,38 @@ The same deployment serves two execution paths from one definition:
 
 **Application installers** (general-purpose, parameter-driven):
 
-- [`General_WinGet_Installer.ps1`](Installers/General_WinGet_Installer.ps1) — WinGet installs hardened for SYSTEM context (bootstraps WinGet if missing, resets sources, re-detects after install, retries on failure).
-- [`General_MSI_Installer.ps1`](Installers/General_MSI_Installer.ps1) — silent MSI with timeout protection and pre/post-install registry verification.
-- [`General_EXE_Installer.ps1`](Installers/General_EXE_Installer.ps1) — EXE installs with **installer-type auto-detection** (InnoSetup, NSIS, InstallShield, WiX Burn, etc.) to infer silent switches.
-- [`General_URL_DL_Installer.ps1`](Installers/General_URL_DL_Installer.ps1) — downloads from a URL (file or ZIP), extracts, and hands off to the MSI/EXE installer.
-- [`General_JSON-App_Installer.ps1`](Installers/General_JSON-App_Installer.ps1) — **the orchestrator.** Looks up an app in the JSON manifest, resolves prerequisites recursively, and dispatches to the right installer by `InstallMethod`.
+- [`General_WinGet_Installer.ps1`](Installers/General_WinGet_Installer.ps1) — robust WinGet installs: bootstraps WinGet via `Install-WinGet.ps1` if missing, validates the App ID, re-detects after install, and on failure **clears the WinGet source cache and retries**, with a final multi-attempt re-check loop (default 15).
+- [`General_MSI_Installer.ps1`](Installers/General_MSI_Installer.ps1) — silent MSI with verbose logging, configurable timeout (process-kill on hang), MSI exit-code interpretation (0/3010 success; 1602/1603/1618/1619/1639 mapped), and pre/post-install registry verification.
+- [`General_EXE_Installer.ps1`](Installers/General_EXE_Installer.ps1) — EXE installs with **installer-framework auto-detection** (InnoSetup, NSIS, InstallShield, WiX Burn, Setup Factory, Advanced Installer, with a raw-byte fallback) to infer silent switches; supports custom expected exit codes and optional wait-for-process.
+- [`General_URL_DL_Installer.ps1`](Installers/General_URL_DL_Installer.ps1) — downloads from a URL (file or ZIP, filename derived from the `Content-Disposition` header), extracts, and hands off to the MSI/EXE installer.
+- [`General_JSON-App_Installer.ps1`](Installers/General_JSON-App_Installer.ps1) — **the orchestrator.** Looks up an app in the JSON manifest (public template, falling back to a private Azure Blob copy), installs the app's declared prerequisites first, and dispatches by `InstallMethod` (`WinGet`, `MSI-Private-AzureBlob`, `EXE-Private-AzureBlob`, `MSI-Online`, `URL_Download`, `Custom_Script`).
 
 **Custom multi-step installers:**
 
-- [`InstallApp-MS_Office-FullClean.ps1`](Installers/InstallApp-MS_Office-FullClean.ps1) — Microsoft 365 Apps with a full clean.
-- [`InstallApp-DellCommandUpdate-FullClean.ps1`](Installers/InstallApp-DellCommandUpdate-FullClean.ps1) — Dell Command Update with a full clean.
-- [`Install-DotNET.ps1`](Installers/Install-DotNET.ps1), [`Install-WinGet.ps1`](Installers/Install-WinGet.ps1) — framework / tooling bootstrap.
+- [`InstallApp-MS_Office-FullClean.ps1`](Installers/InstallApp-MS_Office-FullClean.ps1) — Microsoft 365 Apps with a full clean: scrapes the current Office Deployment Tool link, builds dynamic ODT XML (channel, architecture, language, per-app exclusions, NoTeams variant), removes any existing install, then installs silently.
+- [`InstallApp-DellCommandUpdate-FullClean.ps1`](Installers/InstallApp-DellCommandUpdate-FullClean.ps1) — an ordered 4-step flow: remove any prior DCU (across WinGet/Appx/CIM identities), uninstall .NET 8, install a pinned .NET 8 Desktop Runtime, then install DCU via WinGet.
+- [`Install-DotNET.ps1`](Installers/Install-DotNET.ps1) — routes by version: .NET Framework 3.5 via Windows Optional Features; .NET 5+ (Runtime/Desktop/SDK/AspNet, generic or pinned) via WinGet.
+- [`Install-WinGet.ps1`](Installers/Install-WinGet.ps1) — resilient WinGet bootstrap that detects SYSTEM vs. user context and tries multiple install methods in sequence until WinGet works.
 
 **Printers:**
 
-- [`General_IP-Printer_Installer.ps1`](Installers/General_IP-Printer_Installer.ps1) — reads `PrinterData.json`, downloads the driver ZIP from Azure Blob, stages the driver via `pnputil`, and creates the port and print queue.
-- [`Uninstall-Printer.ps1`](Uninstallers/Uninstall-Printer.ps1) — removes a printer by name.
+- [`General_IP-Printer_Installer.ps1`](Installers/General_IP-Printer_Installer.ps1) — reads `PrinterData.json`, downloads the driver ZIP from Azure Blob, stages the driver with `pnputil /add-driver`, and creates the port and print queue. Auto-relaunches in 64-bit PowerShell when needed, supports JSON-defined driver overrides, and is idempotent (skips/replaces existing drivers, ports, and printers).
+- [`Uninstall-Printer.ps1`](Uninstallers/Uninstall-Printer.ps1) — removes a printer by name (`Remove-Printer` with a WMI fallback), deletes the associated port, and re-checks to confirm removal.
 
 **Uninstallers:**
 
-- [`General_Uninstaller.ps1`](Uninstallers/General_Uninstaller.ps1) — one tool, many methods: WinGet, MSI uninstall strings, registry, CIM/WMI (`Win32_Product`), and AppX/provisioned packages. `UninstallType` selects a method or `All`.
-- [`Adobe_Uninstaller_Suite/`](Uninstallers/Adobe_Uninstaller_Suite) — bundled Adobe cleanup utilities.
+- [`General_Uninstaller.ps1`](Uninstallers/General_Uninstaller.ps1) — one tool, many methods: WinGet, MSI uninstall strings, registry, CIM/WMI (`Win32_Product`), and AppX/provisioned packages. `UninstallType` selects a method or `All` (runs every method, then re-verifies removal). An optional hardened mode runs each method as a monitored, timeout-bounded process.
+- [`Adobe_Uninstaller_Suite/`](Uninstallers/Adobe_Uninstaller_Suite) — full Adobe cleanup that stops Adobe processes, runs CIM uninstalls, and bundles Adobe's official uninstaller, Genuine Cleaner, and Creative Cloud Uninstaller.
 
 **Downloaders (Azure Blob):**
 
-- [`DownloadFrom-AzureBlob-SAS.ps1`](Downloaders/DownloadFrom-AzureBlob-SAS.ps1) — SAS-token auth (works in SYSTEM context; the primary method).
+- [`DownloadFrom-AzureBlob-SAS.ps1`](Downloaders/DownloadFrom-AzureBlob-SAS.ps1) — SAS-token auth requiring no interactive login, so it can run unattended / in SYSTEM context. Accepts a full SAS URL or storage-account + container + token.
 - [`DownloadFrom-AzureBlob-AADauth.ps1`](Downloaders/DownloadFrom-AzureBlob-AADauth.ps1) — Azure AD / connected-account auth (runs in user context, uses the `Az` modules).
 
 **Configurators:**
 
-- [`Configure-Registry.ps1`](Configurators/Configure-Registry.ps1) — read / backup / modify / lock-down registry with explicit 32- and 64-bit view handling.
-- [`Configure-WindowsOptionalFeatures.ps1`](Configurators/Configure-WindowsOptionalFeatures.ps1) — enable/disable Windows optional features.
+- [`Configure-Registry.ps1`](Configurators/Configure-Registry.ps1) — read / read-all (breadth-first subtree walk) / backup / modify / ACL lock-down (SYSTEM + Administrators only). Backup auto-selects the 32- or 64-bit `reg.exe` view by process architecture; lock-down operates on the 64-bit view.
+- [`Configure-WindowsOptionalFeatures.ps1`](Configurators/Configure-WindowsOptionalFeatures.ps1) — enable/disable Windows optional features, with a post-action re-check and optional auto-restart when a feature requires it.
 
 **Templates** (cloned to endpoints and/or used to generate artifacts):
 
@@ -235,28 +236,9 @@ The same deployment serves two execution paths from one definition:
 
 **Tooling:**
 
-- [`Setup.ps1`](Setup.ps1) — the technician's main entry point (guided wizards + local install/uninstall + config remediation generation).
+- [`Setup.ps1`](Setup.ps1) — the technician's main entry point (guided wizards + local install/uninstall + config-remediation generation).
 - [`Generate_Install-Command.ps1`](Other_Tools/Generate_Install-Command.ps1) — builds the Base64-encoded Intune install/uninstall commands and detection scripts.
-- [`Security_Manager.ps1`](Other_Tools/Security_Manager.ps1) — enforces strict ACLs on PowerDeploy folders and registry.
-
----
-
-## Repository layout
-
-```
-PowerDeploy/
-├─ Setup.ps1                  # Technician entry point (run as admin)
-├─ Setup_RUNNER.bat
-├─ Installers/                # WinGet, MSI, EXE, URL, JSON orchestrator, custom installers
-├─ Uninstallers/              # General multi-method uninstaller, printer, Adobe suite
-├─ Downloaders/               # Azure Blob (SAS + AAD)
-├─ Configurators/             # Registry + Windows optional features
-├─ Templates/                 # Git runner, detection/remediation scripts, JSON manifests
-├─ Other_Tools/               # Install-command generator, Security Manager, utilities
-├─ Tests/
-├─ LICENSE.md  /  NOTICE.md
-└─ README.md
-```
+- [`Security_Manager.ps1`](Other_Tools/Security_Manager.ps1) — enforces strict ACLs on PowerDeploy folders and registry (with VM-aware graceful skipping where ACL protection isn't supported).
 
 ---
 
@@ -274,9 +256,9 @@ Per-organization settings live in the registry under **`HKLM\SOFTWARE\PowerDeplo
 | `\Applications` | `ApplicationDataJSONpath` | Blob path to `ApplicationData.json` |
 | `\Applications` | `ApplicationContainerSASkey` | SAS token for the applications container |
 
-The hive is ACL-locked to SYSTEM + Administrators by the Security Manager.
+The hive is ACL-locked to SYSTEM + Administrators by the Security Manager (via `Configure-Registry.ps1`). The registry holds *where to find things* (storage account, SAS keys, JSON paths, repo URL/token); the actual per-asset printer and app definitions live in the Azure Blob JSON manifests.
 
-**JSON manifests** describe *what* is available to deploy. Apps come from two manifests merged at run time: a **public** `ApplicationData.json` in this repo (community-maintained) and a **private** copy in your Azure Blob (your org's custom/proprietary apps). Each entry declares an `InstallMethod` (`WinGet`, `MSI-Private-AzureBlob`, `EXE-Private-AzureBlob`, `URL_Download`, `Custom_Script`) plus the fields that method needs, and optional `PreRequisites`.
+**JSON manifests** describe *what* is available to deploy. Apps come from two manifests merged at run time: a **public** `ApplicationData.json` in this repo (community-maintained) and a **private** copy in your Azure Blob (your org's custom/proprietary apps). If the private copy can't be reached, lookup gracefully proceeds with the public catalog alone. Each entry declares an `InstallMethod` (`WinGet`, `MSI-Private-AzureBlob`, `EXE-Private-AzureBlob`, `MSI-Online`, `URL_Download`, `Custom_Script`) plus the fields that method needs, and optional `PreRequisites`.
 
 ---
 
@@ -284,13 +266,16 @@ The hive is ACL-locked to SYSTEM + Administrators by the Security Manager.
 
 PowerDeploy is meant to be **forked into a private organization repo**. The public repo carries shared logic and the community app catalog; your private fork carries your org's customizations and is what production endpoints pull from.
 
-`Setup.ps1` asks which **deployment mode** an artifact should target, which selects the repo + branch the generated package will pull from at run time:
+`Setup.ps1` asks which **deployment mode** an artifact should target — a **public/private × dev/main matrix** — which selects the repo + branch the generated package will pull from at run time:
 
-- **Public – Development / Testing** — the official public repo (`dev` / `main`), for trying shared code.
-- **Private – Development** — your fork's `dev` branch, for testing your own changes.
-- **Production** — your fork's `main` branch; this is the mode for real deployments.
+| Mode | Repo | Branch | Use for |
+|---|---|---|---|
+| **Public – Development** | Official public repo | `dev` | Trying in-progress shared code |
+| **Public – Testing** | Official public repo | `main` | Validating released shared code |
+| **Private – Development** | Your org fork | `dev` | Testing your own changes |
+| **Production** | Your org fork | `main` | Real deployments |
 
-Each mode installs into its own `C:\ProgramData\PowerDeploy--<mode>` working directory so test and production payloads stay isolated on the same machine.
+Each mode installs into its own `C:\ProgramData\PowerDeploy--<MODE>` working directory, so test and production payloads stay isolated on the same machine.
 
 > Detailed setup of the private fork, Azure Blob containers, and SAS/AAD configuration is intended to be documented separately as the project matures.
 
@@ -298,16 +283,41 @@ Each mode installs into its own `C:\ProgramData\PowerDeploy--<mode>` working dir
 
 ## Logging
 
-Every script writes structured logs under the working directory, e.g. `C:\ProgramData\PowerDeploy--<mode>\Logs\`, split by area (`Git_Logs`, `Installer_Logs`, `Detection_Logs`, `Config_Logs`, `Setup_Logs`). Each entry is timestamped and tagged with a severity level (`INFO`, `WARNING`, `ERROR`, `SUCCESS`) and color-coded in the console. Because everything lands in a predictable, per-area location, troubleshooting a failed deployment is reading one log rather than correlating across the Intune Management Extension logs.
+Every script writes structured logs under its working directory, e.g. `C:\ProgramData\PowerDeploy--<MODE>\Logs\`, split by area. The named areas below are examples — scripts also write to `Download_Logs`, `Uninstaller_Logs`, `Security_Logs`, `Generator_Logs`, and others:
+
+`Git_Logs`, `Installer_Logs`, `Detection_Logs`, `Config_Logs`, `Setup_Logs`, …
+
+Each entry is timestamped and tagged with a severity level (`INFO`, `WARNING`, `ERROR`, `SUCCESS`, plus a `DRYRUN` level) and color-coded in the console. Because everything lands in a predictable, per-area location, troubleshooting a failed deployment is reading one log rather than correlating across the Intune Management Extension logs.
 
 ---
 
 ## Security
 
-- **Runs in SYSTEM context** on managed endpoints, with the working directory under `C:\ProgramData` (not visible to standard users by default).
-- **ACL enforcement** via the Security Manager: working folders and the `HKLM\SOFTWARE\PowerDeploy` hive are restricted to SYSTEM + Administrators, with inheritance broken.
-- **Path validation** guards against malformed/injection-prone paths before any file or registry operation runs.
-- **Azure Blob access** uses scoped, read-only SAS tokens (or AAD for user-context scenarios) rather than embedded account keys.
+- **Designed to run in SYSTEM context** on managed endpoints, with the working directory under `C:\ProgramData` (not visible to standard users by default). *(SYSTEM is a deployment assumption — e.g. Intune-invoked — not something the scripts self-enforce.)*
+- **ACL enforcement** via the Security Manager: a fixed set of working folders is restricted to SYSTEM + Administrators with inheritance broken, and the `HKLM\SOFTWARE\PowerDeploy` hive is locked down via `Configure-Registry.ps1`. Enforcement runs before *and* after the target script as a tamper check, and verifies state before mutating ACLs.
+- **Malformed-path validation** guards against illegal characters, reserved device names, over-length paths, and bad formats before file/registry operations run.
+- **Azure Blob access** uses scoped SAS tokens (or AAD for user-context scenarios) rather than embedded account keys.
+
+> **Note for reviewers:** generated commands pass parameters to the runner as Base64-encoded JSON, which is decoded and invoked via `Invoke-Expression`. Path validation checks *syntax*, not injection; treat the repo and the generated parameters as trusted inputs.
+
+---
+
+## Repository layout
+
+```
+PowerDeploy/
+├─ Setup.ps1                  # Technician entry point (run elevated)
+├─ Setup_RUNNER.bat
+├─ Installers/                # WinGet, MSI, EXE, URL, JSON orchestrator, custom installers, IP printer
+├─ Uninstallers/              # General multi-method uninstaller, printer, Adobe suite
+├─ Downloaders/               # Azure Blob (SAS + AAD)
+├─ Configurators/             # Registry + Windows optional features
+├─ Templates/                 # Git runner, detection/remediation scripts, JSON manifests
+├─ Other_Tools/               # Install-command generator, Security Manager, utilities
+├─ Tests/
+├─ LICENSE.md  /  NOTICE.md
+└─ README.md
+```
 
 ---
 
@@ -318,7 +328,7 @@ Every script writes structured logs under the working directory, e.g. `C:\Progra
 1. **Fork** this repo into your organization's private repo (for production use).
 2. **Stand up Azure Blob Storage**: containers for application payloads and printer drivers, plus your private `ApplicationData.json` / `PrinterData.json`.
 3. **Generate and deploy the config remediation** from `Setup.ps1` to populate `HKLM\SOFTWARE\PowerDeploy` on your fleet (storage account, SAS keys, JSON paths, repo URL).
-4. **Run `Setup.ps1` as an administrator** and follow a wizard to add an app or printer: it can test the install locally, then produce the `.intunewin`, the install/uninstall commands, and the detection script.
+4. **Run `Setup.ps1` elevated** and follow a wizard to add an app or printer: it can test the install locally, then produce the `.intunewin`, the install/uninstall commands, and the detection script.
 5. **Create the Win32 app in Intune** using those generated artifacts, and assign it.
 
 ---
@@ -337,7 +347,7 @@ For issues and feature requests, please use the [GitHub Issues](https://github.c
 
 **Source:** <https://github.com/Santa-Cruz-COE/PowerDeploy>
 
-> **Note:** Portions of this README were drafted with AI assistance and describe an evolving project. Verify specifics against the scripts themselves before relying on them in production.
+<sub>Portions of this README were drafted with AI assistance and verified against the source scripts; it describes an evolving project, so confirm specifics against the code before relying on them in production.</sub>
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/38b2e30d-dd82-4681-a18a-4e7c96e23d9b" />

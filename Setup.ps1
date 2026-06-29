@@ -401,7 +401,7 @@ Function Set-URL {
 }
 
 # DONE (still need testing) 1/14/26
-function Setup--Azure-Printer{
+function Printer--InTune-Setup{
 
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
@@ -871,7 +871,7 @@ Verified: `n"
 }
 
 # DONE (still need testing) 1/14/26
-Function Setup--Azure-WindowsApp{
+Function WindowsApp--InTune-Setup{
 
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
@@ -1799,7 +1799,7 @@ Function Make-InTuneWin {
 }
 
 # DONE AND TESTED 1/14/26
-Function Install--Local-Printer{
+Function Printer--Install-Local{
     Param(
 
         $PrinterName=$null
@@ -1833,7 +1833,7 @@ Function Install--Local-Printer{
 }   
 
 # DONE AND TESTED 1/14/26
-Function Uninstall--Printer-Local{
+Function Printer--Uninstall-Local{
 
     # Write-Log "Uninstalling a local printer function is still being developed." "ERROR"
     # Exit 1
@@ -1913,7 +1913,7 @@ Function Uninstall--Printer-Local{
 }
 
 # DONE AND TESTED 1/14/26
-Function Uninstall--Application-Local{
+Function WindowsApp--Uninstall-Local{
 
     # UNFINISHED
     Function JSON-zz-search-and-uninstall{
@@ -2557,7 +2557,7 @@ Function Uninstall--Application-Local{
 }
 
 # DONE AND TESTED 1/14/26
-Function Install--Local-Application{
+Function WindowsApp--Install-Local{
 
     param(
 
@@ -3404,7 +3404,7 @@ Function ParseJSON {
 }
 
 # DONE 1/14/26 - Thoroughly tested
-Function Setup--Azure-Registry_Remediations_For_Org{
+Function Registry_Remediations--InTune-Setup{
 
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
@@ -3412,6 +3412,8 @@ Function Setup--Azure-Registry_Remediations_For_Org{
     Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
     Write-Log "==========================================================================================="
 
+    Write-Log ""
+    Write-Log "Registry_Remediations_For_Org"
     Write-Log ""
 
     Write-Log "Do you need instructions on generating SAS keys for your Azure Blob Storage containers?" "WARNING"
@@ -3794,16 +3796,54 @@ Function Setup--Azure-Registry_Remediations_For_Org{
 
     }
 
+    Write-Log ""
+
+    Write-Log "Do you need to create a new InTuneWin package entry in InTune?" "WARNING"
+    $Answer = Read-Host "(y/n)"
+    if ($Answer -eq "y"){
+
+        Write-Log "Now packaging InTuneWin stuff..."
+
+        Make-InTuneWin -SourceFile $RemediationScript
+        $RemediationIntuneWinPath = $Global:intunewinpath
+
+        Write-Log ""    
+        Write-Log "The Intune Win32 app package has been created at: $RemediationIntuneWinPath"
+        # Write-Log ""    
+
+        # Write-Log "Next we will automatically create the install/uninstall commands. Keep in mind the uninstall command is dummy, it won't do anything by design in this scenario."
+
+
+        Write-Log ""   
+
+        $RemediationScriptName = Split-Path -Path $RemediationScript -Leaf
+
+        $InstallCommand = '%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& ''.\'+"$RemediationScriptName"+'''"'
+    
+        Write-Log "InstallCommand: $InstallCommand"
+        Write-Log ""   
+
+        Write-Log "UninstallCommand (dummy): $InstallCommand"
+
+        Write-Log ""   
+
+        Write-Log "Detection Script: $DetectScript"
+
+        Write-Log ""  
+
+
+    }
+
     Pause
     Write-Log ""
-    Write-Log "That's all! Now give your target machines some time and monitor progress." "SUCCESS"
+    Write-Log "That's all! After deploying to endpoints give your target machines some time and monitor progress." "SUCCESS"
 
 
 
 }
 
 # DONE 2/19/26 - Keeping simple for now
-Function Uninstall--Adobe-Apps-FullCleanup{
+Function Adobe-Apps-FullCleanup--Uninstall-Local{
 
     Clear 
 
