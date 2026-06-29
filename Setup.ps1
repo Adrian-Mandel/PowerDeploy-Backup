@@ -241,7 +241,22 @@ function Write-Log {
     }
     
 
-    Add-Content -Path $LogPath -Value $logEntry
+    # Resilient log write. A real-time AV/EDR filter driver (Defender, CrowdStrike, etc.)
+    # can briefly grab a freshly-created log file mid-burst to scan it. The old bare
+    # Add-Content had no retry, so a single locked moment threw "Stream was not readable"
+    # and spammed the console for the rest of the (sub-second) run. Retry a few times
+    # against an atomic append, and never let a logging failure surface as an error.
+    # Encoding::Default (system ANSI) matches the prior Add-Content behavior so existing
+    # log tooling sees no change other than resilience.
+    for ($logAttempt = 1; $logAttempt -le 5; $logAttempt++) {
+        try {
+            [System.IO.File]::AppendAllText($LogPath, $logEntry + [Environment]::NewLine, [System.Text.Encoding]::Default)
+            break
+        } catch {
+            if ($logAttempt -eq 5) { break }   # give up quietly after ~160ms of retries
+            Start-Sleep -Milliseconds 40
+        }
+    }
 }
 
 Function Set-URL {
