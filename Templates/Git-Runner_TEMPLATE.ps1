@@ -123,7 +123,13 @@ param(
 ####################
 
 # Handle base64 encoded parameters if provided (for Intune compatibility)
-if ($ScriptParamsBase64 -and -not $ScriptParams) {
+# The base64 payload is authoritative. Generated custom scripts have this param() block
+# stripped, so $ScriptParams is undeclared there and would otherwise resolve to a leftover
+# session/global variable via dynamic scoping - never trust a pre-existing value.
+if ($ScriptParamsBase64) {
+    if ($ScriptParams) {
+        Write-Host "WARNING: A pre-existing ScriptParams value was found and will be ignored. Using the ScriptParamsBase64 payload instead." -ForegroundColor Yellow
+    }
     try {
         Write-Host "Decoding base64 parameters..."
         $decodedJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ScriptParamsBase64))
