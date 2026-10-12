@@ -45,6 +45,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 $featureFiles = @(
     'Other_Tools\InTune-GraphAPI_Helpers.ps1',
     'Other_Tools\Upload-InTuneWin32App.ps1',
+    'Other_Tools\Get-WinGetAppDescription.ps1',
     'Tests\IntuneGraphUpload.Tests.ps1',
     'Tests\Check-PDCompatibility.ps1',
     'Tests\Fixtures\IntuneGraph\New-PDIntuneWinFixture.ps1',

@@ -96,6 +96,8 @@ $ConvertVendorPackToDriverZip_ScriptPath = "$RepoRoot\Other_Tools\Convert-Vendor
 $InTuneGraphHelperScriptPath = "$RepoRoot\Other_Tools\InTune-GraphAPI_Helpers.ps1"
 # Path to the Intune uploader (dot-sourced below: its script body is skipped when dot-sourced)
 $IntuneUploadScriptPath = "$RepoRoot\Other_Tools\Upload-InTuneWin32App.ps1"
+# Path to the WinGet description lookup used for app Descriptions (dot-sourced below: functions only)
+$WinGetDescriptionScriptPath = "$RepoRoot\Other_Tools\Get-WinGetAppDescription.ps1"
 
 # ---------------------------------------------------------------------------
 # Optional Intune upload feature (spec 3): loaded at SCRIPT scope, functions only
@@ -141,6 +143,27 @@ try {
 } Catch {
 
     $GraphUploadLoadError = $_.Exception.Message
+
+}
+
+# Optional WinGet description lookup (spec 6), loaded the same way and kept separate so a problem
+# here only costs the description (it falls back to N/A), never the upload or the manual path.
+$WinGetDescriptionLoadError = $null
+
+try {
+
+    if (-not (Test-Path -LiteralPath $WinGetDescriptionScriptPath)) {
+        throw "The WinGet description lookup was not found at $WinGetDescriptionScriptPath"
+    }
+    . $WinGetDescriptionScriptPath
+
+    if (-not (Get-Command -Name 'Get-WinGetAppDescription' -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw "Get-WinGetAppDescription.ps1 loaded without defining Get-WinGetAppDescription."
+    }
+
+} Catch {
+
+    $WinGetDescriptionLoadError = $_.Exception.Message
 
 }
 
@@ -501,6 +524,13 @@ function Printer--InTune-Setup{
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
 
+    # Select-PrinterFromJSON copies the chosen record's properties into script scope and never
+    # clears the ones a record does not have, so a printer without a Location would inherit the
+    # previous selection's Location. Clear the optional Intune metadata fields first (spec I04).
+    foreach ($StaleField in @('Department', 'Location', 'Model', 'Asset', 'Verified', 'Publisher')) {
+        Remove-Variable -Name $StaleField -Scope Script -ErrorAction SilentlyContinue
+    }
+
     Write-Log "==========================================================================================="
     Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
     Write-Log "==========================================================================================="
@@ -537,9 +567,21 @@ function Printer--InTune-Setup{
 
         Write-Log "Please select the printer from the PrinterData.json:"
 
+        $script:PrinterSelectionError = $null
         $PrinterName = Select-PrinterFromJSON -DialogueSelection "B"
 
-        Clear 
+        # A duplicate PrinterName stops this printer's setup before anything is packaged (spec 12.2);
+        # the screen is left as-is so the error stays readable. Setup itself keeps running.
+        if ($script:PrinterSelectionError) {
+            Write-Log ""
+            Write-Log "Printer setup stopped: $($script:PrinterSelectionError)" "ERROR"
+            Write-Log "Fix PrinterData.json so each PrinterName appears once, then run this setup again." "WARNING"
+            $script:PrinterSelectionError = $null
+            Pause
+            return
+        }
+
+        Clear
 
         if ($PrinterName -eq $null -or $PrinterName -eq "") {
             Write-Log "No printer selected. Proceeding with guided setup." "WARNING"
@@ -887,11 +929,40 @@ function Printer--InTune-Setup{
     # Set the publisher to PowerDeploy if it is missing
     if($publisher -eq "" -or $null -eq $publisher){$publisher = "PowerDeploy"}
 
+    # Intune text, built once before any publishing choice (spec 5.1 step 2). Description is what
+    # users see in the Company Portal; Notes is the admin-only technical block (spec 4.2 / 4.4).
+    $PrinterDescriptionText = New-IntunePrinterDescription -Department $Department -Location $Location -Model $Model -Asset $Asset -PrinterIP $PrinterIP
+    $PrinterTechnicalNotes  = New-IntuneTechnicalNotes -TargetRepo $RepoUrl -TargetBranch $Global:RepoBranch -SourceCommit $CurrentGitVer -Verified $Verified -SourceRepoRoot $RepoRoot
+
+    $PrinterIntuneMetadata = @{
+        IntuneWinPath           = $PrinterIntuneWinPath
+        DisplayName             = $PotentialPrinterInTuneName
+        Description             = $PrinterDescriptionText
+        Publisher               = $publisher
+        AppVersion              = $CurrentGitVer
+        Category                = 'Printers'
+        Notes                   = $PrinterTechnicalNotes
+        InstallCommandFile      = $MainInstallCommandTXT
+        UninstallCommandFile    = $UninstallCommandTXT
+        DetectionScriptFile     = $DetectPrinterScript
+        AllowAvailableUninstall = $true
+    }
+
     Clear
     Write-Log "==========================================================================================="
     Write-Log "UPLOAD AND CREATE INTUNE WIN32 APPLICATION"
     Write-Log "==========================================================================================="
     Write-Log ""
+
+    if ((Read-IntunePublishChoice) -eq '2') {
+        if (Invoke-InTuneAutoUpload -Metadata $PrinterIntuneMetadata) { return }
+        Clear
+        Write-Log "==========================================================================================="
+        Write-Log "UPLOAD AND CREATE INTUNE WIN32 APPLICATION (GUIDED)"
+        Write-Log "==========================================================================================="
+        Write-Log ""
+    }
+
     Write-Log "Next we will manually create a Win32 application in InTune for this printer using the new intunewin file, script, and install command."
     Write-Log ""
     Write-Log "InTune Win32 Application creation instructions:"
@@ -910,27 +981,19 @@ function Printer--InTune-Setup{
     Write-Log " 3 - APP INFORMATION:"
     write-log "     - NAME (Pre-made default):"
 Write-Host "`n$PotentialPrinterInTuneName`n"
-    Write-Log "     - DESCRIPTION (Pre-made default):"
+    Write-Log "     - DESCRIPTION (Pre-made default, shown to users in the Company Portal):"
 
-# if($Asset) {Write-Host "Asset: $Asset `n"}
-# if ($Location) {Write-Host "Location: $Location `n"}
+    Write-Host ""
+    Write-Host $PrinterDescriptionText
+    Write-Host ""
 
-$AppDescription = "Department: $DEPARTMENT `n
-Asset: $Asset `n
-Location: $Location `n
-Model: $Model  `n
-PrinterIP: $PrinterIP `n
----`n
-POWERDEPLOY DATA:
+    # Stamped once here, kept in its own variable so the technical block is never stamped twice
+    $PrinterManualNotes = Complete-IntuneManualNotes -Notes $PrinterTechnicalNotes
 
-Target Repo: $RepoUrl
-Target Branch: $Global:RepoBranch`n
-Source Repo: $GitURL
-Source Branch: $GitBranch
-Source Commit: $CurrentGitVer`n
-Verified: $Verified`n"
-
-    write-host $AppDescription
+    Write-Log "     - NOTES (Pre-made default, admins only - near the bottom of the App information page):"
+    Write-Host ""
+    Write-Host $PrinterManualNotes
+    Write-Host ""
 
     Write-Log "     - PUBLISHER: Your organization name (default is PowerDeploy)"
     Write-Log "     - VERSION: "
@@ -1002,6 +1065,14 @@ Function WindowsApp--InTune-Setup{
 
     # Determine if this is a test or production deployment
     $RepoUrl = Set-URL
+
+    # SearchJSONForApp copies the chosen entry's properties into global scope and never clears
+    # the ones an entry does not have, so an app without an AppDescription would inherit the
+    # previous selection's. Clear the optional fields first (spec I04).
+    foreach ($StaleField in @('AppDescription', 'Category', 'Verified', 'Publisher', 'PackagedVersion', 'Version', 'PreRequisites', 'DisplayName', 'WinGetID')) {
+        Remove-Variable -Name $StaleField -Scope Global -ErrorAction SilentlyContinue
+        Remove-Variable -Name $StaleField -Scope Script -ErrorAction SilentlyContinue
+    }
     Write-Log "==========================================================================================="
     Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
     Write-Log "==========================================================================================="
@@ -1755,7 +1826,7 @@ Function WindowsApp--InTune-Setup{
     Write-Log ""
     Write-Log "All prep complete!"
     Write-Log ""
-    Write-Log "Next we will manually create a Win32 application in InTune for this app using the new intunewin file, script, and install command."
+    Write-Log "Next we will create a Win32 application in InTune for this app using the new intunewin file, script, and install command."
     Write-Log ""
 
 
@@ -1800,6 +1871,49 @@ Function WindowsApp--InTune-Setup{
     if($PackagedVersion -eq "" -or $null -eq $PackagedVersion){$PackagedVersion = "N/A"}
     #if($PackagedVersion -eq "" -or $null -eq $PackagedVersion){$PackagedVersion = "N/A"}
 
+    # Intune text, built once before any publishing choice (spec 5.1 step 2). $AppDescription stays
+    # the JSON value; $TheAppDescription is the final Company Portal text (spec 4.3).
+    $AppDescriptionResult = Get-IntuneAppDescriptionText -AppDescription $AppDescription -InstallMethod $InstallMethod -WinGetID $WinGetID
+    $TheAppDescription = [string]$AppDescriptionResult.Text
+    if ($AppDescriptionResult.Warning) { Write-Log $AppDescriptionResult.Warning "WARNING" }
+    Write-Log "Description source: $($AppDescriptionResult.Source)" "INFO2"
+
+    $AppNotesFields = [ordered]@{
+        'InstallMethod'    = $InstallMethod
+        'Target Version'   = $Version
+        'Packaged Version' = $PackagedVersion
+        'PreRequisites'    = $PreRequisites
+    }
+    $AppTechnicalNotes = New-IntuneTechnicalNotes -AppFields $AppNotesFields -TargetRepo $RepoUrl -TargetBranch $Global:RepoBranch -SourceCommit $CurrentGitVer -Verified $Verified -SourceRepoRoot $RepoRoot
+
+    # AppVersion: PackagedVersion, else Version, else none (spec 4.1)
+    $AppIntuneVersion = ""
+    if (-not (Test-IntuneFieldMissing -Value $PackagedVersion)) { $AppIntuneVersion = [string]$PackagedVersion }
+    elseif (-not (Test-IntuneFieldMissing -Value $Version)) { $AppIntuneVersion = [string]$Version }
+
+    $AppIntuneMetadata = @{
+        IntuneWinPath           = $ApplicationIntuneWinPath
+        DisplayName             = $PotentialAppInTuneName
+        Description             = $TheAppDescription
+        Publisher               = $publisher
+        AppVersion              = $AppIntuneVersion
+        Category                = $(if (Test-IntuneFieldMissing -Value $Category) { "" } else { [string]$Category })
+        Notes                   = $AppTechnicalNotes
+        InstallCommandFile      = $MainInstallCommandTXT
+        UninstallCommandFile    = $UninstallCommandTXT
+        DetectionScriptFile     = $DetectAppScript
+        AllowAvailableUninstall = $false
+    }
+
+    Write-Log ""
+    if ((Read-IntunePublishChoice) -eq '2') {
+        if (Invoke-InTuneAutoUpload -Metadata $AppIntuneMetadata) { return }
+        Clear
+        Write-Log "==========================================================================================="
+        Write-Log "UPLOAD AND CREATE INTUNE WIN32 APPLICATION (GUIDED)"
+        Write-Log "==========================================================================================="
+    }
+
     Write-Log ""
     Write-Log "InTune Win32 Application creation instructions:" "WARNING"
     Write-Log ""           
@@ -1826,33 +1940,19 @@ Function WindowsApp--InTune-Setup{
     # Write-Log "     - Description: Up to your descretion. You could use the current repo commit number. Copying the description from Windows Store, App website, etc could be beneficial."
     # Write-Log "         - Sample Description with your commit #: `n`nPowered by PowerDeploy `n`nInstallMethod: $InstallMethod `nEndPoint Deployment Mode:$Global:DeployMode `nEndpoint Deployment Environment:`n   Git URL: $RepoUrl `n   Git Branch: $Global:RepoBranch `nThis Win32App Development Environment:`n   Git URL: $CurrentGitURL `n   Git Branch: $CurrentGitBranch `n   Git Commit Ver: $CurrentGitVer`n"
     
-    Write-Log "     - DESCRIPTION (Pre-made default):"
+    Write-Log "     - DESCRIPTION (Pre-made default, shown to users in the Company Portal):"
 
-# if($Asset) {Write-Host "Asset: $Asset `n"}
-# if ($Location) {Write-Host "Location: $Location `n"}
-
-$TheAppDescription = "
-
-ApplicationName: $ApplicationName
-
-AppDescription: $AppDescription
-
-InstallMethod: $InstallMethod
-Target Version: $Version
-Packaged Version: $PackagedVersion
-PreRequisites: $PreRequisites
-
----`n
-POWERDEPLOY DATA:
-
-Target Repo: $RepoUrl
-Target Branch: $Global:RepoBranch`n
-Source Repo: $GitURL
-Source Branch: $GitBranch
-Source Commit: $CurrentGitVer`n
-Verified: $Verified`n"
-
+    Write-Host ""
     write-host $TheAppDescription
+    Write-Host ""
+
+    # Stamped once here, kept in its own variable so the technical block is never stamped twice
+    $AppManualNotes = Complete-IntuneManualNotes -Notes $AppTechnicalNotes
+
+    Write-Log "     - NOTES (Pre-made default, admins only - near the bottom of the App information page):"
+    Write-Host ""
+    Write-Host $AppManualNotes
+    Write-Host ""
     
     
     #Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
@@ -2018,6 +2118,11 @@ Function Printer--Install-Local{
     Write-Log ""
 
     $PrinterName = Select-PrinterFromJSON -PrinterName $PrinterName -DialogueSelection "A"
+
+    if ($PrinterName -eq $null -or $PrinterName -eq "") {
+        Write-Log "No printer selected. Printer will not be installed." "WARNING"
+        Return
+    }
 
     # Pause
 
@@ -3486,10 +3591,19 @@ Function Select-PrinterFromJSON {
 
             #Write-Log "Here is all the data on Printer ($PrinterName):" "INFO2"
             Write-Log "PRINTER INFO:" "INFO2"
-            $printer = $jsonData.printers | Where-Object { $_.PrinterName -eq $PrinterName }
+            $printer = @($jsonData.printers | Where-Object { $_.PrinterName -eq $PrinterName })
             Write-Log "" "INFO2"
 
-            if ($printer) {
+            # Duplicate names would copy an array into every field and blank them; stop this workflow (caller sees $null)
+            if ($printer.Count -gt 1) {
+                Write-Log "'$PrinterName' appears $($printer.Count) times in PrinterData.json; printer names must be unique." "ERROR"
+                # Lets Printer--InTune-Setup tell a duplicate (stop) apart from a cancel (guided setup)
+                $script:PrinterSelectionError = "'$PrinterName' appears $($printer.Count) times in PrinterData.json; printer names must be unique."
+                Return $null
+            }
+
+            if ($printer.Count -eq 1) {
+                $printer = $printer[0]
                 
                 # Write-Log "Formatted list:"
                 # $printer | Format-List *
@@ -4061,6 +4175,8 @@ Function Adobe-Apps-FullCleanup--Uninstall-Local{
 }
 
 
+#region Intune API upload (Graph) - menu, its helpers, and the wizards' publishing helpers
+
 # ---------------------------------------------------------------------------
 # Intune upload: credential provisioning menu (spec 7.2)
 #
@@ -4083,15 +4199,13 @@ Function Show-GraphUploadMenu {
     Write-Log "==========================================================================================="
     Write-Log ""
     Write-Log "This menu manages the credential that PowerDeploy uses to publish apps through Microsoft Graph."
-    Write-Log "It is stored only on this Windows account, protected by Windows DPAPI. It is never stored in the"
-    Write-Log "fleet registry, in this repo, or in any log."
+    Write-Log "It is stored only on this Windows account, protected by Windows DPAPI. It is never stored in the fleet registry, in this repo, or in any log."
     Write-Log ""
-    Write-Log "1 - Create or configure the upload application"
-    Write-Log "2 - Enter existing application credentials"
-    Write-Log "3 - Test the saved connection"
-    Write-Log "4 - Rotate this workstation's secret"
-    Write-Log "5 - Show MAA exclusion instructions"
-    Write-Log "6 - Remove saved credentials"
+    Write-Log "1 - Enterprise Application - Setup/Config (prerequisite for API uploads)"
+    Write-Log "2 - Enterprise Application - Test config"
+    Write-Log "3 - Enterprise Application - Rotate local PC secret"
+    Write-Log "4 - Enterprise Application - Remove local PC secret"
+    Write-Log "5 - MAA Exclusions - Setup/Config (not prerequisite, useful if your tenant has MAA enabled)"
     Write-Log "0 - Return"
     Write-Log ""
 
@@ -4164,8 +4278,8 @@ Function Read-GraphUploadTenantId {
     # account signs in to" - the session is still verified before anything is written.
     While ($true) {
 
-        Write-Log "Which tenant owns the upload application?" 'WARNING'
-        Write-Log "     Enter its Tenant ID (GUID). Press Enter to sign in without naming a tenant." 'INFO2'
+        Write-Log "Enter your Tenant ID (Entra admin center > Overview > Tenant ID)." 'WARNING'
+        Write-Log "     Or press Enter to use the tenant of the account you sign in with." 'INFO2'
 
         $Answer = ([string](Read-Host "Tenant ID")).Trim()
 
@@ -4190,8 +4304,8 @@ Function Read-GraphUploadSecretLifetime {
     # policy is accepted. The service still decides what the tenant really allows.
     While ($true) {
 
-        Write-Log "How many days should the new secret be valid for?" 'WARNING'
-        Write-Log "     Press Enter for the default of $Default days (about six months)." 'INFO2'
+        Write-Log "How many days should this PC's secret last before it has to be rotated?" 'WARNING'
+        Write-Log "     Press Enter for $Default days (about six months)." 'INFO2'
 
         $Answer = ([string](Read-Host "Days")).Trim()
 
@@ -4215,7 +4329,10 @@ Function Read-GraphUploadSecretLifetime {
 
 Function Connect-GraphUploadAdminSession {
 
-    param([switch]$IncludeConsent)
+    param(
+        [switch]$IncludeConsent,
+        [string]$Purpose = 'make this change'
+    )
 
     # The upload identity is never allowed to manage applications (spec 7.1), so anything here that
     # touches Entra is done by a temporary sign-in as an administrator. This function owns the
@@ -4233,7 +4350,19 @@ Function Connect-GraphUploadAdminSession {
         return $null
     }
 
-    Write-Log "Opening a sign-in for Microsoft Graph. Your browser may open, and this sign-in is used only while this menu is running." 'INFO2'
+    Write-Log ""
+    Write-Log "Opening sign in window to $Purpose." 'WARNING'
+    Write-Log ""
+    Write-Log "About the permissions requested:"
+    Write-Log "  - Read and write applications: finds or creates the PowerDeploy Enterprise Application and adds or removes its secrets."
+    if ($IncludeConsent) {
+        Write-Log "  - Manage app permission grants and app role assignments: gives that application its two permissions (manage Intune apps, read groups)."
+    }
+    Write-Log "  - View users' basic profile: tells Setup which account signed in, so it can check you are in the right tenant."
+    Write-Log "  - Maintain access to data you have given it access to: lets the sign-in renew itself so you are not asked again every hour."
+    Write-Log "The Microsoft screen may also list permissions your organization approved earlier for Microsoft Graph PowerShell. PowerDeploy only requests the ones above."
+    Write-Log "Leave 'Consent on behalf of your organization' unchecked." 'WARNING'
+    Write-Log ""
 
     $Connect = Connect-PDGraphInteractive -TenantId $TenantId -IncludeConsent:$IncludeConsent
 
@@ -4324,7 +4453,7 @@ Function Invoke-GraphUploadProvisionApplication {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "CREATE OR CONFIGURE THE UPLOAD APPLICATION"
+    Write-Log "ENTERPRISE APPLICATION - SETUP/CONFIG (AUTOMATIC)"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4333,37 +4462,44 @@ Function Invoke-GraphUploadProvisionApplication {
     if (-not $Prerequisite.Available) {
         Write-Log $Prerequisite.Message 'WARNING'
         Write-Log ""
-        Write-Log "Option 2 (enter existing credentials) works without it, and guided manual publishing is always available." 'WARNING'
+        Write-Log "The Manual choice under Enterprise Application - Setup/Config works without it, and guided manual publishing is always available." 'WARNING'
         return
     }
 
     $LifetimeDays = Read-GraphUploadSecretLifetime -Default ([int]$PDGraph.DefaultSecretLifetimeDays)
 
-    $Session = Connect-GraphUploadAdminSession -IncludeConsent
+    $Session = Connect-GraphUploadAdminSession -IncludeConsent -Purpose 'automatically create or configure the Enterprise Application'
     if ($null -eq $Session) { return }
 
     try {
 
         Write-Log ""
-        Write-Log "Looking for the upload application in this tenant..." 'INFO2'
+        Write-Log "Checking whether the PowerDeploy Enterprise Application already exists in your tenant..." 'INFO2'
 
         $Found         = Find-PDEntraUploadApp
         $ApplicationId = ''
+        $AppName       = [string]$PDGraph.AppDisplayName
 
-        Write-Log "     $($Found.Message)" 'INFO2'
+        # Say what was found before saying what happens next.
+        if (-not $Found.Found) {
+            Write-Log "     Not found: no Enterprise Application named '$AppName' exists yet." 'INFO2'
+        } elseif (-not $Found.Multiple) {
+            $Existing = @($Found.Apps)[0]
+            Write-Log "     Found: '$AppName' already exists (id $($Existing.ApplicationId), created $($Existing.Created))." 'INFO2'
+        }
 
         if ($Found.Multiple) {
 
             Write-Log ""
-            Write-Log "More than one application has that name, so this tool will not guess between them:" 'WARNING'
+            Write-Log "More than one Enterprise Application is named '$AppName'. Pick the one PowerDeploy should use:" 'WARNING'
 
             foreach ($Candidate in @($Found.Apps)) {
-                Write-Log ("     {0}   ({1}, created {2})" -f [string]$Candidate.ApplicationId, [string]$Candidate.DisplayName, [string]$Candidate.Created) 'INFO2'
+                Write-Log ("     {0}   (created {1})" -f [string]$Candidate.ApplicationId, [string]$Candidate.Created) 'INFO2'
             }
 
             While ($true) {
 
-                $Answer = ([string](Read-Host "Enter the application id to use, or press Enter to go back")).Trim()
+                $Answer = ([string](Read-Host "Paste the id to use, or press Enter to go back")).Trim()
 
                 if ([string]::IsNullOrWhiteSpace($Answer)) {
                     Write-Log "Cancelled; nothing was changed." 'WARNING'
@@ -4376,40 +4512,31 @@ Function Invoke-GraphUploadProvisionApplication {
 
                 if (-not [string]::IsNullOrWhiteSpace($ApplicationId)) { break }
 
-                Write-Log "That id is not one of the applications listed above." 'ERROR'
+                Write-Log "That id is not one of the ones listed above." 'ERROR'
 
             }
 
         }
 
+        # One plain list of what is about to happen, then one question.
+        Write-Log ""
+        Write-Log "PowerDeploy will now:" 'WARNING'
+        if ($Found.Found) {
+            Write-Log "     1 - Use the existing Enterprise Application '$AppName'"
+        } else {
+            Write-Log "     1 - Create an Enterprise Application named '$AppName' (none exists yet)"
+        }
+        Write-Log "     2 - Make sure it has its two permissions: manage Intune apps, and read groups"
+        Write-Log "     3 - Create a secret for this PC (valid $LifetimeDays days), test it, and save it encrypted for your Windows account"
         Write-Log ""
 
-        $ReviewFirst = Read-GraphUploadYesNo -Question "Review the steps first? It reads this tenant and changes nothing." -Default $true
-
-        if ($ReviewFirst) {
-
-            Write-Log ""
-            $Review = Start-PDGraphUploadProvisioning -Session $Session -ApplicationId $ApplicationId -SecretLifetimeDays $LifetimeDays -DryRun
-
-            Show-GraphUploadSteps -Steps $Review.Steps
-
-            foreach ($Warning in @($Review.Warnings)) {
-                if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
-            }
-
-            Write-Log ""
-            Write-Log $Review.Message 'INFO2'
-            Write-Log ""
-
-            if (-not (Read-GraphUploadYesNo -Question "Make those changes in this tenant now?" -Default $false)) {
-                Write-Log "Cancelled; nothing was changed." 'WARNING'
-                return
-            }
-
+        if (-not (Read-GraphUploadYesNo -Question "Go ahead?" -Default $true)) {
+            Write-Log "Cancelled; nothing was changed." 'WARNING'
+            return
         }
 
         Write-Log ""
-        Write-Log "Working. A browser sign-in may already have been used; nothing here needs it again..." 'INFO2'
+        Write-Log "Setting up the Enterprise Application. A brand-new secret can take a few minutes to start working; Setup waits for it (up to 5 minutes)..." 'INFO2'
 
         $Result = Start-PDGraphUploadProvisioning -Session $Session -ApplicationId $ApplicationId -SecretLifetimeDays $LifetimeDays
 
@@ -4425,7 +4552,7 @@ Function Invoke-GraphUploadProvisionApplication {
 
             Write-Log $Result.Message 'SUCCESS'
             Write-Log ""
-            Write-Log "Next: option 5 shows how to ask for the Multi-Admin Approval exclusion. Publishing is then offered in the printer and app wizards." 'WARNING'
+            Write-Log "Next: if your tenant has Multi-Admin Approval enabled, use MAA Exclusions - Setup/Config. Publishing is then offered in the printer and app wizards." 'WARNING'
 
         } else {
 
@@ -4569,7 +4696,7 @@ Function Invoke-GraphUploadEnterCredential {
         Write-Log ""
         Write-Log "Saved for this Windows account: $($Saved.Path)" 'SUCCESS'
         Write-Log "     Expires: $($Saved.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture))" 'INFO2'
-        Write-Log "     Option 3 re-tests this at any time. Option 4 rotates it." 'WARNING'
+        Write-Log "     Enterprise Application - Test config re-tests this at any time; Rotate local PC secret replaces it." 'WARNING'
 
     } Catch {
 
@@ -4619,7 +4746,7 @@ Function Invoke-GraphUploadTestConnection {
     } Catch {
 
         Show-GraphUploadError $_
-        Write-Log "If no credential is stored yet, use option 1 or option 2." 'WARNING'
+        Write-Log "If no credential is stored yet, use Enterprise Application - Setup/Config first." 'WARNING'
 
     }
 
@@ -4648,19 +4775,19 @@ Function Invoke-GraphUploadRotateSecret {
     $Summary = Show-GraphUploadCredentialState
 
     if (-not $Summary.Stored) {
-        Write-Log "There is nothing to rotate yet. Use option 1 or option 2 first." 'WARNING'
+        Write-Log "There is nothing to rotate yet. Use Enterprise Application - Setup/Config first." 'WARNING'
         return
     }
 
     $LifetimeDays = Read-GraphUploadSecretLifetime -Default ([int]$PDGraph.DefaultSecretLifetimeDays)
 
-    $Session = Connect-GraphUploadAdminSession
+    $Session = Connect-GraphUploadAdminSession -Purpose 'add a new secret for this PC and remove the old one'
     if ($null -eq $Session) { return }
 
     try {
 
         Write-Log ""
-        Write-Log "Adding a replacement secret, testing it, then revoking the old one..." 'INFO2'
+        Write-Log "Adding a new secret for this PC, testing it, then removing the old one. A brand-new secret can take a few minutes to start working; Setup waits for it (up to 5 minutes)..." 'INFO2'
 
         $Result = Start-PDGraphSecretRotation -Session $Session -SecretLifetimeDays $LifetimeDays
 
@@ -4753,7 +4880,7 @@ Function Invoke-GraphUploadRemoveCredential {
 
     if ($Revoke) {
 
-        $Session = Connect-GraphUploadAdminSession
+        $Session = Connect-GraphUploadAdminSession -Purpose "remove this PC's secret from the Enterprise Application"
         if ($null -eq $Session) { return }
 
     }
@@ -4792,6 +4919,452 @@ Function Invoke-GraphUploadRemoveCredential {
 
     }
 
+}
+
+# ---------------------------------------------------------------------------
+# Intune publishing from the printer and app wizards (spec 4 and 5.1)
+# ---------------------------------------------------------------------------
+# The wizards build one metadata hashtable and hand it to Invoke-InTuneAutoUpload. Everything these
+# functions use arrives as a parameter (no wizard variables are read), none of them calls exit, and
+# every failure returns $false so the caller falls through to the guided walkthrough.
+
+Function Test-IntuneFieldMissing {
+    param([AllowNull()][object]$Value)
+
+    # Null, whitespace and the N/A placeholder all mean "not supplied" (spec 4.1 / 4.3).
+    $Text = [string]$Value
+    return ([string]::IsNullOrWhiteSpace($Text) -or ($Text.Trim() -eq 'N/A'))
+}
+
+Function ConvertTo-IntuneFieldText {
+    param([AllowNull()][object]$Value)
+
+    if (Test-IntuneFieldMissing -Value $Value) { return 'N/A' }
+    return [string]$Value
+}
+
+Function Get-IntuneDisplayUrl {
+    param([AllowNull()][string]$Url)
+
+    # Display/Notes only. The real $RepoUrl used to build commands is never changed (spec 12.1).
+    if ([string]::IsNullOrWhiteSpace($Url)) { return 'N/A' }
+
+    if (Get-Command -Name 'Remove-UrlCredential' -CommandType Function -ErrorAction SilentlyContinue) {
+        return (Remove-UrlCredential -Url $Url)
+    }
+
+    # Helper library not loaded: still never print user:token@ into a description.
+    return ($Url -replace '(?i)^(https?://)[^/@\s]+@', '$1')
+}
+
+Function New-IntunePrinterDescription {
+    param(
+        [AllowNull()][object]$Department,
+        [AllowNull()][object]$Location,
+        [AllowNull()][object]$Model,
+        [AllowNull()][object]$Asset,
+        [AllowNull()][object]$PrinterIP
+    )
+
+    # Always all five labels, in this order, each N/A on its own (spec 4.2).
+    $Lines = @(
+        ('Department: {0}' -f (ConvertTo-IntuneFieldText -Value $Department)),
+        ('Location: {0}'   -f (ConvertTo-IntuneFieldText -Value $Location)),
+        ('Model: {0}'      -f (ConvertTo-IntuneFieldText -Value $Model)),
+        ('Asset: {0}'      -f (ConvertTo-IntuneFieldText -Value $Asset)),
+        ('PrinterIP: {0}'  -f (ConvertTo-IntuneFieldText -Value $PrinterIP))
+    )
+
+    return ($Lines -join "`r`n")
+}
+
+Function New-IntuneTechnicalNotes {
+    param(
+        [AllowNull()][System.Collections.Specialized.OrderedDictionary]$AppFields,
+        [AllowNull()][string]$TargetRepo,
+        [AllowNull()][string]$TargetBranch,
+        [AllowNull()][string]$SourceCommit,
+        [AllowNull()][object]$Verified,
+        [AllowNull()][string]$SourceRepoRoot
+    )
+
+    # The source repo/branch are read from the repo that built the package, not from whatever
+    # directory Setup was started in (spec I03).
+    $SourceRepo   = $null
+    $SourceBranch = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($SourceRepoRoot)) {
+        try { $SourceRepo   = [string](git -C $SourceRepoRoot remote get-url origin 2>$null) } Catch { $SourceRepo = $null }
+        try { $SourceBranch = [string](git -C $SourceRepoRoot rev-parse --abbrev-ref HEAD 2>$null) } Catch { $SourceBranch = $null }
+    }
+
+    $Lines = @()
+
+    if ($null -ne $AppFields) {
+        foreach ($Key in $AppFields.Keys) {
+            $Lines += ('{0}: {1}' -f $Key, (ConvertTo-IntuneFieldText -Value $AppFields[$Key]))
+        }
+        $Lines += ''
+    }
+
+    $Lines += 'POWERDEPLOY DATA'
+    $Lines += ('Target Repo: {0}'   -f (Get-IntuneDisplayUrl -Url $TargetRepo))
+    $Lines += ('Target Branch: {0}' -f (ConvertTo-IntuneFieldText -Value $TargetBranch))
+    $Lines += ('Source Repo: {0}'   -f (Get-IntuneDisplayUrl -Url $SourceRepo))
+    $Lines += ('Source Branch: {0}' -f (ConvertTo-IntuneFieldText -Value $SourceBranch))
+    $Lines += ('Source Commit: {0}' -f (ConvertTo-IntuneFieldText -Value $SourceCommit))
+    $Lines += ('Verified: {0}'      -f (ConvertTo-IntuneFieldText -Value $Verified))
+
+    return ($Lines -join "`r`n")
+}
+
+Function Complete-IntuneManualNotes {
+    param([AllowNull()][string]$Notes)
+
+    # Manual mode stamps the technical block once, the same way the uploader does (spec 4.4).
+    $Now = [System.DateTimeOffset]::Now
+
+    if (Get-Command -Name 'Complete-PDIntuneNotes' -CommandType Function -ErrorAction SilentlyContinue) {
+        return (Complete-PDIntuneNotes -Notes $Notes -CreatedAt $Now)
+    }
+
+    return (([string]$Notes).TrimEnd() + "`r`n" + 'Created: ' + $Now.ToString('yyyy-MM-ddTHH:mm:sszzz', [System.Globalization.CultureInfo]::InvariantCulture))
+}
+
+Function Get-IntuneAppDescriptionText {
+    param(
+        [AllowNull()][string]$AppDescription,
+        [AllowNull()][string]$InstallMethod,
+        [AllowNull()][string]$WinGetID
+    )
+
+    # Spec 4.3 decision sequence. The JSON is never written back and the app name is never used
+    # as a fallback. A failed lookup is a warning plus N/A, never a reason to stop publishing.
+    if (-not (Test-IntuneFieldMissing -Value $AppDescription)) {
+        return @{ Text = $AppDescription; Source = 'JSON AppDescription'; Warning = $null }
+    }
+
+    if ([string]$InstallMethod -ne 'WinGet') {
+        return @{ Text = 'N/A'; Source = 'none'; Warning = $null }
+    }
+
+    if (Test-IntuneFieldMissing -Value $WinGetID) {
+        return @{ Text = 'N/A'; Source = 'none'; Warning = 'The app installs with WinGet but has no WinGetID, so no description could be looked up. Using N/A.' }
+    }
+
+    if (-not (Get-Command -Name 'Get-WinGetAppDescription' -CommandType Function -ErrorAction SilentlyContinue)) {
+        return @{ Text = 'N/A'; Source = 'none'; Warning = "The WinGet description lookup is not available ($WinGetDescriptionLoadError). Using N/A." }
+    }
+
+    Write-Log "Looking up the WinGet description for '$WinGetID' (read-only, up to a minute)..." 'INFO2'
+
+    $Lookup = $null
+    try {
+        $Lookup = @(Get-WinGetAppDescription -WinGetId $WinGetID) | Select-Object -Last 1
+    } Catch {
+        return @{ Text = 'N/A'; Source = 'none'; Warning = "The WinGet description lookup failed: $($_.Exception.Message) Using N/A." }
+    }
+
+    if (($null -ne $Lookup) -and $Lookup.Found -and -not (Test-IntuneFieldMissing -Value $Lookup.Description)) {
+        return @{ Text = [string]$Lookup.Description; Source = "WinGet ($($Lookup.Source))"; Warning = $null }
+    }
+
+    $Status = 'Unknown'; $Reason = ''
+    if ($null -ne $Lookup) { $Status = [string]$Lookup.Status; $Reason = [string]$Lookup.Message }
+    return @{ Text = 'N/A'; Source = 'none'; Warning = ("No WinGet description was found for '{0}' ({1}: {2}). Using N/A." -f $WinGetID, $Status, $Reason) }
+}
+
+Function Read-IntunePublishChoice {
+
+    Write-Log "How would you like to create this app in Intune?" 'WARNING'
+    Write-Log ""
+    Write-Log "     1 - Guided manual setup (step-by-step walkthrough of the Intune portal)"
+    Write-Log "     2 - Automatic setup via the API (creates, uploads, and assigns the app for you)"
+    Write-Log ""
+
+    While ($true) {
+        $Choice = ([string](Read-Host "1/2")).Trim()
+        if ($Choice -eq '1' -or $Choice -eq '2') { return $Choice }
+        Write-Log "Invalid input. Please enter 1 or 2." 'ERROR'
+    }
+}
+
+Function Read-IntuneGroupList {
+    param([Parameter(Mandatory = $true)][string]$Intent)
+
+    Write-Log ("Enter the {0} assignment groups, separated by ';' (exact group names or group object IDs). Leave blank for none." -f $Intent.ToUpperInvariant()) 'WARNING'
+    $Raw = [string](Read-Host $Intent)
+
+    # Spec 5.2: split on semicolons, trim, discard empty pieces.
+    $Groups = @($Raw -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    return ,([string[]]$Groups)
+}
+
+Function Get-IntuneUploadFileHashes {
+    param([string[]]$Paths)
+
+    # Fingerprint of everything the review covered, so a file that changes between review and
+    # submission forces a fresh review (spec 5.1).
+    $Parts = foreach ($Path in $Paths) {
+        try { (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash } Catch { 'missing' }
+    }
+    return ($Parts -join '|')
+}
+
+Function Show-IntuneUploadReview {
+    param([Parameter(Mandatory = $true)][object]$Review)
+
+    $Meta = $Review.ReviewMetadata
+
+    Write-Log "==========================================================================================="
+    Write-Log "REVIEW - nothing has been created in Intune yet"
+    Write-Log "==========================================================================================="
+    Write-Log ""
+
+    if ($null -ne $Meta) {
+        $Version = [string]$Meta.AppVersion
+        if ([string]::IsNullOrWhiteSpace($Version)) { $Version = '(none)' }
+
+        Write-Log "NAME:      $($Meta.DisplayName)"
+        Write-Log "PUBLISHER: $($Meta.Publisher)"
+        Write-Log "VERSION:   $Version"
+        Write-Log "PACKAGE:   $($Meta.PackageFileName) (setup file: $($Meta.SetupFilePath))"
+        Write-Log "ALLOW AVAILABLE UNINSTALL: $($Meta.AllowAvailableUninstall)"
+        Write-Log ""
+        Write-Log "DESCRIPTION (shown to users in the Company Portal):"
+        Write-Host ""
+        Write-Host $Meta.Description
+        Write-Host ""
+        Write-Log "NOTES (admins only):"
+        Write-Host ""
+        Write-Host $Meta.Notes
+        Write-Host ""
+        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.NotesTimestampNote)) { Write-Log "     $($Meta.NotesTimestampNote)" 'INFO2' }
+        Write-Log ""
+    }
+
+    $CategoryResult = $Review.CategoryResult
+    if ($null -ne $CategoryResult) {
+        switch ([string]$CategoryResult.Status) {
+            'Resolved'    { Write-Log "CATEGORY:  $($CategoryResult.RequestedName) ($($CategoryResult.Id))" }
+            'Missing'     { Write-Log "CATEGORY:  '$($CategoryResult.RequestedName)' does not exist in Intune - the app will be created without a category." 'WARNING' }
+            'Ambiguous'   { Write-Log "CATEGORY:  '$($CategoryResult.RequestedName)' matches more than one Intune category - the app will be created without a category." 'WARNING' }
+            default       { Write-Log "CATEGORY:  (none requested)" }
+        }
+    }
+
+    $Groups = @($Review.ResolvedGroups)
+    if ($Groups.Count -eq 0) {
+        Write-Log "ASSIGNMENTS: No assignments"
+    } else {
+        Write-Log "ASSIGNMENTS:"
+        foreach ($Group in $Groups) {
+            Write-Log ("     [{0}] {1} ({2})" -f $Group.Intent, $Group.DisplayName, $Group.Id)
+        }
+    }
+
+    $Duplicates = @($Review.DuplicateApps)
+    if ($Duplicates.Count -gt 0) {
+        Write-Log ""
+        Write-Log "AN APP WITH THIS NAME ALREADY EXISTS IN INTUNE:" 'WARNING'
+        foreach ($Duplicate in $Duplicates) {
+            Write-Log ("     {0} ({1})" -f $Duplicate.DisplayName, $Duplicate.Id) 'WARNING'
+        }
+    }
+
+    if ($null -ne $Review.CommandLengths) {
+        Write-Log ""
+        Write-Log ("Command lengths: install {0}, uninstall {1} characters" -f $Review.CommandLengths.Install, $Review.CommandLengths.Uninstall) 'INFO2'
+    }
+
+    if ($null -ne $Review.SecretExpiresOn) {
+        Write-Log ("Upload credential expires: {0}" -f ([System.DateTimeOffset]$Review.SecretExpiresOn).ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)) 'INFO2'
+    }
+
+    foreach ($Warning in @($Review.Warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$Warning)) { Write-Log $Warning 'WARNING' }
+    }
+
+    Write-Log ""
+}
+
+Function Invoke-InTuneAutoUpload {
+    <#
+        Spec 5.1 steps 5-13. Returns $true only when the app was published and verified; any other
+        outcome (no credential, failed check, declined duplicate or confirmation, failed upload)
+        returns $false and the calling wizard continues with the guided walkthrough.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Metadata
+    )
+
+    try {
+
+        Clear
+        Write-Log "==========================================================================================="
+        Write-Log "AUTOMATIC SETUP VIA THE API"
+        Write-Log "==========================================================================================="
+        Write-Log ""
+
+        if (-not $GraphUploadAvailable) {
+            Write-Log "Automatic setup is not available on this workstation: $GraphUploadLoadError" 'WARNING'
+            Write-Log "Continuing with the guided manual setup." 'WARNING'
+            Pause
+            return $false
+        }
+
+        # Step 5: is there a usable credential? Loaded only to check it; the uploader loads its own.
+        try {
+            $Credential = Get-PDGraphCredential
+            foreach ($Warning in @($Credential.Warnings)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$Warning)) { Write-Log $Warning 'WARNING' }
+            }
+            $Credential = $null
+        } Catch {
+            Show-GraphUploadError -Failure $_
+            Write-Log ""
+            Write-Log "The upload credential is set up from the main menu with Graph_API_Upload--InTune-Setup." 'WARNING'
+            Write-Log "Continuing with the guided manual setup." 'WARNING'
+            Pause
+            return $false
+        }
+
+        # Step 6: groups, Required first.
+        Write-Log ""
+        $RequiredGroups  = @(Read-IntuneGroupList -Intent 'Required')
+        Write-Log ""
+        $AvailableGroups = @(Read-IntuneGroupList -Intent 'Available')
+        Write-Log ""
+
+        $Common = @{
+            IntuneWinPath           = [string]$Metadata.IntuneWinPath
+            DisplayName             = [string]$Metadata.DisplayName
+            Description             = [string]$Metadata.Description
+            Publisher               = [string]$Metadata.Publisher
+            InstallCommandFile      = [string]$Metadata.InstallCommandFile
+            UninstallCommandFile    = [string]$Metadata.UninstallCommandFile
+            DetectionScriptFile     = [string]$Metadata.DetectionScriptFile
+            AppVersion              = [string]$Metadata.AppVersion
+            Category                = [string]$Metadata.Category
+            Notes                   = [string]$Metadata.Notes
+            AllowAvailableUninstall = [bool]$Metadata.AllowAvailableUninstall
+        }
+
+        $HashedFiles = @($Common.IntuneWinPath, $Common.InstallCommandFile, $Common.UninstallCommandFile, $Common.DetectionScriptFile)
+
+        $AllowDuplicate = $false
+
+        While ($true) {
+
+            # Step 7: dry run - reads only, zero writes.
+            Write-Log "Checking the package, credential, groups, and category against the tenant (dry run, nothing is created)..."
+            Write-Log ""
+
+            $ReviewedHashes = Get-IntuneUploadFileHashes -Paths $HashedFiles
+            $Review = Invoke-PDIntuneUpload @Common -RequiredGroups $RequiredGroups -AvailableGroups $AvailableGroups -DryRun
+
+            if ($null -eq $Review) {
+                Write-Log "The uploader returned nothing. Nothing was created. Continuing with the guided manual setup." 'ERROR'
+                Pause
+                return $false
+            }
+
+            Show-IntuneUploadReview -Review $Review
+
+            # Step 8.
+            if (-not $Review.Success) {
+                Write-Log "The check failed (stage: $($Review.Stage)):" 'ERROR'
+                Show-GraphUploadError -Failure $Review.Message
+                Write-Log ""
+                Write-Log "Nothing was created in Intune. Continuing with the guided manual setup." 'WARNING'
+                Pause
+                return $false
+            }
+
+            # Step 9: a duplicate name needs its own explicit yes.
+            $AllowDuplicate = $false
+            if (@($Review.DuplicateApps).Count -gt 0) {
+                $AllowDuplicate = Read-GraphUploadYesNo -Question 'Create ANOTHER app with the same name anyway?' -Default $false
+                if (-not $AllowDuplicate) {
+                    Write-Log "Not creating a duplicate. Continuing with the guided manual setup." 'WARNING'
+                    Pause
+                    return $false
+                }
+            }
+
+            # Step 10.
+            $Confirmed = Read-GraphUploadYesNo -Question 'Create this app in Intune now?' -Default $false
+            if (-not $Confirmed) {
+                Write-Log "Cancelled. Nothing was created. Continuing with the guided manual setup." 'WARNING'
+                Pause
+                return $false
+            }
+
+            if ((Get-IntuneUploadFileHashes -Paths $HashedFiles) -eq $ReviewedHashes) { break }
+
+            Write-Log "The package, a command file, or the detection script changed after the review. Reviewing again..." 'WARNING'
+            Write-Log ""
+        }
+
+        # Step 11: submit the RESOLVED ids, so a renamed or newly ambiguous group can't swap in.
+        $ResolvedRequired  = [string[]]@(@($Review.ResolvedGroups) | Where-Object { [string]$_.Intent -eq 'required' }  | ForEach-Object { [string]$_.Id })
+        $ResolvedAvailable = [string[]]@(@($Review.ResolvedGroups) | Where-Object { [string]$_.Intent -eq 'available' } | ForEach-Object { [string]$_.Id })
+
+        Write-Log ""
+        Write-Log "Creating the app, uploading the package, and assigning it. Large packages can take several minutes..."
+        Write-Log ""
+
+        $Result = Invoke-PDIntuneUpload @Common -RequiredGroups $ResolvedRequired -AvailableGroups $ResolvedAvailable -AllowDuplicateName:$AllowDuplicate
+
+        if ($null -ne $Result -and $Result.Success) {
+            # Step 12.
+            Write-Log "The app was created in Intune and verified!" 'SUCCESS'
+            Write-Log ""
+            Write-Log "App ID: $($Result.AppId)"
+            Write-Log "Portal: $($Result.PortalUrl)"
+            foreach ($Warning in @($Result.Warnings)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$Warning)) { Write-Log $Warning 'WARNING' }
+            }
+            Write-Log ""
+            Write-Log "Please verify installation, detection, and uninstall on a test device." 'WARNING'
+            Write-Log ""
+            Pause
+            return $true
+        }
+
+        # Step 13.
+        if ($null -eq $Result) {
+            Write-Log "The uploader returned nothing; the outcome is unknown. Check Intune for '$($Common.DisplayName)' before creating it again." 'ERROR'
+        } else {
+            Write-Log "Automatic setup failed (stage: $($Result.Stage), cleanup: $($Result.CleanupStatus)):" 'ERROR'
+            Show-GraphUploadError -Failure $Result.Message
+
+            $Cleanup = [string]$Result.CleanupStatus
+            if ($Cleanup -ne 'Deleted' -and $Cleanup -ne 'NotNeeded') {
+                Write-Log ""
+                if (-not [string]::IsNullOrWhiteSpace([string]$Result.AppId)) {
+                    Write-Log "An app was left in Intune: $($Result.AppId)" 'WARNING'
+                    if (-not [string]::IsNullOrWhiteSpace([string]$Result.PortalUrl)) { Write-Log "Portal: $($Result.PortalUrl)" 'WARNING' }
+                } else {
+                    Write-Log "An app named '$($Common.DisplayName)' may have been created. Check Intune before creating it again." 'WARNING'
+                }
+                Write-Log "Delete or finish that app before creating another one in the guided setup." 'WARNING'
+            }
+        }
+
+        Write-Log ""
+        Write-Log "Continuing with the guided manual setup." 'WARNING'
+        Pause
+        return $false
+
+    } Catch {
+
+        Show-GraphUploadError -Failure $_
+        Write-Log "Continuing with the guided manual setup." 'WARNING'
+        Pause
+        return $false
+
+    }
 }
 
 Function Graph_API_Upload--InTune-Setup {
@@ -4838,17 +5411,37 @@ Function Graph_API_Upload--InTune-Setup {
         if ($Choice -eq '0') { break }
 
         if ($Choice -eq '1') {
-            Invoke-GraphUploadProvisionApplication
+
+            # Two ways to end up with a working credential on this PC: let Setup create/configure the
+            # Enterprise Application with an admin sign-in, or type in one that already exists.
+            Write-Log ""
+            Write-Log "How do you want to set up the Enterprise Application for this PC?" 'WARNING'
+            Write-Log ""
+            Write-Log "     1 - Automatic: sign in as an admin, and Setup creates or reuses the application, grants its permissions, and makes and saves a secret for this PC (recommended)"
+            Write-Log ""
+            Write-Log "     2 - Manual: enter the tenant ID, client ID and secret of an application that already exists (use this if you cannot sign in with the admin roles needed for option 1)"
+            Write-Log ""
+            Write-Log "     0 - Back"
+            Write-Log ""
+
+            $SetupChoice = ([string](Read-Host "Enter the # of your desired option")).Trim()
+
+            if ($SetupChoice -eq '1') {
+                Invoke-GraphUploadProvisionApplication
+            } elseif ($SetupChoice -eq '2') {
+                Invoke-GraphUploadEnterCredential
+            } elseif ($SetupChoice -ne '0') {
+                Write-Log "That is not one of the options above." 'ERROR'
+            }
+
         } elseif ($Choice -eq '2') {
-            Invoke-GraphUploadEnterCredential
-        } elseif ($Choice -eq '3') {
             Invoke-GraphUploadTestConnection
-        } elseif ($Choice -eq '4') {
+        } elseif ($Choice -eq '3') {
             Invoke-GraphUploadRotateSecret
+        } elseif ($Choice -eq '4') {
+            Invoke-GraphUploadRemoveCredential
         } elseif ($Choice -eq '5') {
             Show-GraphUploadMaaInstructions
-        } elseif ($Choice -eq '6') {
-            Invoke-GraphUploadRemoveCredential
         } else {
             Write-Log "That is not one of the options above." 'ERROR'
         }
@@ -4864,6 +5457,8 @@ Function Graph_API_Upload--InTune-Setup {
     Write-Log ""
 
 }
+
+#endregion Intune API upload (Graph)
 
 
 # Setup 

@@ -66,7 +66,7 @@ if (-not $script:PDGraph) {
         MaxRetryDelaySec       = 30
         BaseRetryDelaySec      = 1
         PollDeadlineSec        = 600    # per polling stage
-        PropagationDeadlineSec = 120    # token/permission propagation after provisioning
+        PropagationDeadlineSec = 300    # token/permission propagation after provisioning (a brand-new secret can take minutes)
         StorageBlockBytes      = 4194304  # 4 MiB
         PollIntervalMs          = 2000   # gap between two reads of a pending service state
         StorageRenewMarginSec   = 300    # renew a SAS this close to its expiry, not at 0
@@ -4407,7 +4407,7 @@ function Ensure-PDEntraApplication {
     try {
         $created = Invoke-PDGraphDelegatedRequest -Method Post -Uri ([string]$script:PDGraph.ApplicationsPath) -RetryMode 'Write' -Stage $Stage `
                         -Description "create the '$name' application" `
-                        -Body @{ displayName = $name; signInAudience = 'SingleTenant' }
+                        -Body @{ displayName = $name; signInAudience = 'AzureADMyOrg' }
     } catch {
         $info = Get-PDGraphErrorInfo -ErrorRecord $_
         if ([int]$info.Status -eq 0) {
@@ -4723,10 +4723,13 @@ function Ensure-PDAppRoleAssignments {
                   Message = 'No role ids were resolved, so nothing was granted.' }
     }
 
-    $assignPath = ([string]$script:PDGraph.ServicePrincipalsPath) + '/' + $resourceId + '/appRoleAssignments'
+    # The roles granted TO the upload service principal live under that principal:
+    # /servicePrincipals/{upload principal}/appRoleAssignments. (Under the Microsoft Graph principal
+    # that path lists roles granted to Microsoft Graph itself - the wrong list, and Graph refuses a
+    # grant posted there.) Only grants on the Microsoft Graph resource count here.
+    $assignPath = ([string]$script:PDGraph.ServicePrincipalsPath) + '/' + $principalId + '/appRoleAssignments'
 
     $listPath = New-PDGraphQueryPath -Path $assignPath -Query @{
-        '$filter' = 'principalId eq ' + (ConvertTo-PDODataStringLiteral -Value $principalId)
         '$select' = 'id,appRoleId,principalId,resourceId'
     }
 
@@ -4735,6 +4738,8 @@ function Ensure-PDAppRoleAssignments {
         if ($null -eq $grant) { continue }
         $grantedTo = [string](Get-PDGraphPropertyValue -Object $grant -Name 'principalId')
         if ($grantedTo.Trim() -ne $principalId) { continue }
+        $grantedOn = [string](Get-PDGraphPropertyValue -Object $grant -Name 'resourceId')
+        if ($grantedOn.Trim() -ne $resourceId) { continue }
         $grantedRole = [string](Get-PDGraphPropertyValue -Object $grant -Name 'appRoleId')
         if ([string]::IsNullOrWhiteSpace($grantedRole)) { continue }
         $have += $grantedRole.Trim()
@@ -4900,7 +4905,7 @@ function Add-PDAppSecret {
         $info = Get-PDGraphErrorInfo -ErrorRecord $_
         if ([int]$info.Status -eq 0) {
             return @{ Success = $false; Outcome = 'Unknown'; LifetimeDays = $days; Label = $label; Secret = $null; ExpiresOn = $null; Warnings = $warnings
-                      Message = ("The secret request did not come back, so it is not known whether a secret was created. It was not repeated. List the application secrets in Entra and use removal (option 6) if one was left behind. ({0})" -f [string]$info.Message) }
+                      Message = ("The secret request did not come back, so it is not known whether a secret was created. It was not repeated. List the application secrets in Entra and use 'Enterprise Application - Remove local PC secret' if one was left behind. ({0})" -f [string]$info.Message) }
         }
         return @{ Success = $false; Outcome = 'Failed'; LifetimeDays = $days; Label = $label; Secret = $null; ExpiresOn = $null; Warnings = $warnings
                   Message = $info.Message }
@@ -5358,7 +5363,11 @@ function Wait-PDGraphUploadSecretReady {
         operator cannot tell that apart from a mistake. So: retry the real thing (a token request
         plus the roles it carries) until it works or the deadline passes. A secret the token
         endpoint rejects outright (wrong or unknown application) is reported at once instead of
-        being retried for two minutes.
+        being retried until the deadline - unless -SecretJustCreated says the secret (and maybe the
+        application) was created moments ago. Then "invalid client secret" and "application not
+        found" are exactly what replication lag looks like, so they are waited out too (first live
+        run, 2026-10-12: AADSTS7000215 in the same second the secret was created). A wrong tenant
+        is still reported at once.
 
         The secret value is never part of the answer, and neither is the token.
     #>
@@ -5366,6 +5375,7 @@ function Wait-PDGraphUploadSecretReady {
         [Parameter(Mandatory = $true)][AllowNull()][object]$Credential,
         [AllowNull()][string[]]$RequiredRoles,
         [double]$DeadlineSec = 0,
+        [switch]$SecretJustCreated,
         [string]$Stage = 'Credential'
     )
 
@@ -5400,7 +5410,10 @@ function Wait-PDGraphUploadSecretReady {
             $failure = Get-PDGraphErrorInfo -ErrorRecord $_
             $last    = [string]$failure.Message
 
-            foreach ($hard in @('invalid_client', 'AADSTS7000215', 'AADSTS700016', 'AADSTS90002')) {
+            $hardCodes = @('invalid_client', 'AADSTS7000215', 'AADSTS700016', 'AADSTS90002')
+            if ($SecretJustCreated) { $hardCodes = @('AADSTS90002') }
+
+            foreach ($hard in $hardCodes) {
                 if ($last -like "*$hard*") {
                     return @{ Ready = $false; Roles = @(); MissingRoles = @($roles); Attempts = $attempts
                               Reason = 'SecretRejected'
@@ -5505,7 +5518,7 @@ function Get-PDGraphCredentialMetadata {
     } catch {
         $reason = ([string]$_.Exception.Message)
         if ($reason -match '(?i)decrypt|cryptograph|key|padding|mac|bad data|not valid|rmtp|protected') {
-            Stop-PDGraphError -Stage 'Credential' -Message 'The stored credential could not be decrypted by this Windows account, so it cannot be rotated. Re-enter it (option 2) or remove the file (option 6).'
+            Stop-PDGraphError -Stage 'Credential' -Message 'The stored credential could not be decrypted by this Windows account, so it cannot be rotated. Re-enter it ('Enterprise Application - Setup/Config', Manual) or remove it ('Enterprise Application - Remove local PC secret').'
         }
         Stop-PDGraphError -Stage 'Credential' -Message ("The stored credential file could not be read and may be corrupt, so it cannot be rotated. ({0})" -f $reason)
     }
@@ -5620,7 +5633,7 @@ function Start-PDGraphSecretRotation {
 
     if (-not $looked.Found) {
         $answer.Reason  = 'NoApplication'
-        $answer.Message = ("The stored credential's application could not be found in the tenant you signed in to ({0}). Nothing was changed; re-enter the credential instead (option 2)." -f $looked.Message)
+        $answer.Message = ("The stored credential's application could not be found in the tenant you signed in to ({0}). Nothing was changed; re-enter the credential instead ('Enterprise Application - Setup/Config', Manual)." -f $looked.Message)
         return $answer
     }
 
@@ -5659,7 +5672,7 @@ function Start-PDGraphSecretRotation {
                     -ServicePrincipalId $old.ServicePrincipalId -AppDisplayName $old.AppDisplayName
 
     # --- 4a. prove it works before anything is overwritten ---------------------------------
-    $test = Wait-PDGraphUploadSecretReady -Credential $candidate -Stage $Stage
+    $test = Wait-PDGraphUploadSecretReady -Credential $candidate -SecretJustCreated -Stage $Stage
     if (-not $test.Ready) {
         $cleanup = & $cleanupNewKey $applicationId $created.KeyId
         $answer.Reason                = 'TestFailed'
@@ -6029,7 +6042,7 @@ function Start-PDGraphUploadProvisioning {
                     -AppDisplayName ([string]$script:PDGraph.AppDisplayName)
 
     # --- 8. prove it, then save; a secret that cannot upload is not worth keeping ----------
-    $test = Wait-PDGraphUploadSecretReady -Credential $candidate -Stage $Stage
+    $test = Wait-PDGraphUploadSecretReady -Credential $candidate -SecretJustCreated -Stage $Stage
     & $addStep 'Test' $test.Ready $test.Message
 
     if (-not $test.Ready) {
@@ -6136,7 +6149,7 @@ function Test-PDGraphUploadCandidateCredential {
 
     if (@($missing).Count -gt 0) {
         return @{ Valid = $false; Reason = 'MissingRoles'; Credential = $credential; Roles = @($held); MissingRoles = @($missing); Warnings = $warnings
-                  Message = ("Those credentials work but the application is not granted {0}. Grant the missing application role(s) in Entra (option 1 does it), then save again. Nothing was replaced." -f (($missing | ForEach-Object { "'$_'" }) -join ', ')) }
+                  Message = ("Those credentials work but the application is not granted {0}. Grant the missing application role(s) in Entra ('Enterprise Application - Setup/Config', Automatic, does it), then save again. Nothing was replaced." -f (($missing | ForEach-Object { "'$_'" }) -join ', ')) }
     }
 
     if (@($held).Count -eq 0) {

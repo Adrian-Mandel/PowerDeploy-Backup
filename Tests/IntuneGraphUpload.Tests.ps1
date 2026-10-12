@@ -3410,7 +3410,7 @@ function Invoke-PDM5DelegatedRoute {
             id             = [string]$state.NewApplicationId
             appId          = [string]$state.NewClientId
             displayName    = 'PowerDeploy Intune Upload'
-            signInAudience = 'SingleTenant'
+            signInAudience = 'AzureADMyOrg'
         } | ConvertTo-Json -Compress))
     }
 
@@ -3500,9 +3500,17 @@ function Invoke-PDM5DelegatedRoute {
     }
 
     if ($decoded -like '*/appRoleAssignments*') {
+        # Like the real service: the URL names the principal the roles are granted TO, and a grant
+        # posted under any other principal is refused (this once let a wrong path pass every test).
+        $pathPrincipal = $null
+        if ($decoded -match '/servicePrincipals/([0-9a-fA-F-]{36})/appRoleAssignments') { $pathPrincipal = $matches[1] }
+
         if ($method -eq 'POST') {
             $granted = $null
             try { $granted = ($Request.Body | ConvertFrom-Json) -as [psobject] } catch { }
+            if (([string]$granted.principalId) -ne [string]$pathPrincipal) {
+                return (New-PDMockJsonResponse -Status 400 -Json (@{ error = @{ code = 'Request_BadRequest'; message = 'principalId does not match the service principal in the request URL.' } } | ConvertTo-Json -Compress))
+            }
             $state.Grants += [pscustomobject]@{
                 principalId = [string]$granted.principalId
                 resourceId  = [string]$granted.resourceId
@@ -3511,11 +3519,9 @@ function Invoke-PDM5DelegatedRoute {
             return (New-PDMockJsonResponse -Status 201 -Json (@{ id = 'grant-1' } | ConvertTo-Json -Compress))
         }
 
-        $byPrincipal = Get-PDM5FilterLiteral -DecodedUri $decoded -Property 'principalId'
-
         $matched = @()
         foreach ($grant in @($state.ExistingGrants)) {
-            if ($null -ne $byPrincipal -and (([string]$grant.principalId) -ne $byPrincipal)) { continue }
+            if (([string]$grant.principalId) -ne [string]$pathPrincipal) { continue }
             $matched += $grant
         }
         return (New-PDMockJsonResponse -Json (New-PDMockValuePage -Value $matched))
@@ -3765,12 +3771,11 @@ Add-TestCase 'M5-02' 'the provisioning menu offers exactly the spec 7.2 options 
     $shown = [string](Get-PDM5SetupFunction -Name 'Show-GraphUploadMenu').Extent.Text
 
     foreach ($option in @(
-            '1 - Create or configure the upload application',
-            '2 - Enter existing application credentials',
-            '3 - Test the saved connection',
-            '4 - Rotate this workstation''s secret',
-            '5 - Show MAA exclusion instructions',
-            '6 - Remove saved credentials',
+            '1 - Enterprise Application - Setup/Config (prerequisite for API uploads)',
+            '2 - Enterprise Application - Test config',
+            '3 - Enterprise Application - Rotate local PC secret',
+            '4 - Enterprise Application - Remove local PC secret',
+            '5 - MAA Exclusions - Setup/Config (not prerequisite, useful if your tenant has MAA enabled)',
             '0 - Return')) {
         Assert-True ($shown -like "*$option*") "the menu must show '$option'"
     }
@@ -3930,7 +3935,7 @@ Add-TestCase 'M5-08' 'the missing application is created single-tenant, and a lo
 
     $post = @((Get-PDM5Mutation) | Where-Object { $_ -like 'POST https://graph.microsoft.com/v1.0/applications*' })
     Assert-Equal 1 @($post).Count 'exactly one POST created it'
-    Assert-Like '*"signInAudience":"SingleTenant"*' ([string](@($script:M5.Bodies)[-1].Body)) 'single-tenant, as spec 7.2 step 2 requires'
+    Assert-Like '*"signInAudience":"AzureADMyOrg"*' ([string](@($script:M5.Bodies)[-1].Body)) 'single-tenant, as spec 7.2 step 2 requires'
 
     # A create whose response is lost is reported as unknown, and above all not repeated.
     Reset-PDM5Scenario -Apps @() -Failures @(@{ Method = 'POST'; Match = '/v1.0/applications'; Kind = 'transport' })
@@ -4083,6 +4088,13 @@ Add-TestCase 'M5-13' 'the secret test waits for propagation, and refuses fast wh
         Assert-True (-not $rejected.Ready) 'a rejected secret is not ready'
         Assert-Equal 'SecretRejected' $rejected.Reason 'and it is named, not waited on'
         Assert-Equal 1 ([int]$rejected.Attempts) 'it failed once and stopped, instead of waiting two minutes'
+
+        # A secret created moments ago gets the same answer while Entra replicates it, so there it
+        # is waited out (first live run: AADSTS7000215 in the same second the secret was created).
+        $fresh = Wait-PDGraphUploadSecretReady -Credential $candidate -SecretJustCreated
+        Assert-True (-not $fresh.Ready) 'a secret that never starts working is still not ready'
+        Assert-Equal 'Deadline' $fresh.Reason 'but a just-created secret is waited on until the deadline'
+        Assert-True ([int]$fresh.Attempts -ge 2) 'it kept trying instead of giving up on the first refusal'
 
         # Roles that never arrive is a deadline, and says nothing was saved.
         Reset-PDM5Scenario -TokenRoles @()
@@ -4454,6 +4466,114 @@ Add-TestCase 'M5-18' 'the temporary sign-in is verified, and only this tool clos
     Assert-True (-not $notProvisioned.Success) 'provisioning refuses a non-delegated session'
     Assert-Equal 'NotDelegated' $notProvisioned.Reason 'before touching anything'
     Assert-Equal 0 @((Get-PDM5Mutation)).Count 'and it wrote nothing'
+}
+
+# ---------------------------------------------------------------------------
+# D07 - WinGet description lookup (spec 6)
+#
+# The parser runs against stdout captured from this workstation's winget (see
+# Tests/Fixtures/WinGet/README.md). No case here starts winget.exe.
+# ---------------------------------------------------------------------------
+
+$script:WinGetFixtureRoot = Join-Path $PSScriptRoot 'Fixtures\WinGet'
+$script:WinGetLookupPath  = Join-Path (Split-Path $PSScriptRoot -Parent) 'Other_Tools\Get-WinGetAppDescription.ps1'
+
+if (-not (Test-Path -LiteralPath $script:WinGetLookupPath)) {
+    Write-Host "FATAL: WinGet lookup script not found at $script:WinGetLookupPath"
+    exit 2
+}
+
+. $script:WinGetLookupPath
+
+function Get-PDWinGetFixture {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    return [System.IO.File]::ReadAllText((Join-Path $script:WinGetFixtureRoot $Name), [System.Text.Encoding]::UTF8)
+}
+
+Add-TestCase 'D07a' 'Parser extracts single-line descriptions from captured winget output without the next field' {
+    $vscode = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-Microsoft.VisualStudioCode.txt') -ExpectedId 'microsoft.visualstudiocode'
+    Assert-Equal 'Found' $vscode.Status 'exact id, case-insensitive'
+    Assert-Equal 'Microsoft.VisualStudioCode' $vscode.PackageId 'the id winget printed is returned'
+    Assert-Like 'Microsoft Visual Studio Code is a code editor redefined*Linux, macOS, and Windows.' $vscode.Description 'whole label-line value'
+    Assert-NotMatch '[\r\n]' $vscode.Description 'a single-line value stays single-line'
+    Assert-NotLike '*Homepage*' $vscode.Description 'the next field is not swallowed'
+
+    $sevenZip = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-7zip.7zip.txt') -ExpectedId '7zip.7zip'
+    Assert-Equal 'Found' $sevenZip.Status '7zip'
+    Assert-Equal 'A file archiver with a high compression ratio.' $sevenZip.Description 'exact text'
+}
+
+Add-TestCase 'D07b' 'Parser preserves multiline descriptions and stops at the next top-level field' {
+    $portal = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'msstore-9WZDNCRFJ3PZ.txt') -ExpectedId '9WZDNCRFJ3PZ'
+    Assert-Equal 'Found' $portal.Status 'Store product id'
+    Assert-Like 'Microsoft Intune helps organizations manage access*' $portal.Description 'starts at the first continuation line'
+    Assert-Like '*Company Portal helps simplify the tasks you need to do for work:*' $portal.Description 'middle paragraph kept'
+    Assert-Match '(?m)^- Enroll your device' $portal.Description 'list structure kept, winget indent removed'
+    Assert-Like '*will be used by your organization.' $portal.Description 'ends with the last continuation line'
+    Assert-NotLike '*License:*' $portal.Description 'License not swallowed'
+    Assert-NotMatch '\r' $portal.Description 'CR CR LF endings normalized'
+    Assert-True (@($portal.Description -split "`n").Count -ge 10) 'continuation lines are separate lines'
+
+    $git = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-Git.Git.txt') -ExpectedId 'Git.Git'
+    Assert-Equal 'Found' $git.Status 'Git'
+    Assert-Equal 2 @($git.Description -split "`n").Count 'both continuation lines, nothing more'
+    Assert-Like 'Git is a free and open source*' $git.Description 'first line'
+    Assert-NotLike '*Homepage*' $git.Description 'Homepage not swallowed'
+    Assert-NotLike '*Changes since*' $git.Description 'Release Notes not swallowed'
+}
+
+Add-TestCase 'D07c' 'Parser maps not-found, wrong-id, localized and unknown-boundary output to non-Found statuses' {
+    $missing = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'notfound.txt') -ExpectedId 'Contoso.DoesNotExist.PDTest'
+    Assert-Equal 'NotFound' $missing.Status 'captured not-found text'
+    Assert-True ($null -eq $missing.Description) 'no description'
+
+    $vscodeText = Get-PDWinGetFixture 'winget-Microsoft.VisualStudioCode.txt'
+    $wrongId = ConvertFrom-PDWinGetShowOutput -Text $vscodeText -ExpectedId 'Microsoft.VisualStudioCode.Insiders'
+    Assert-Equal 'NotFound' $wrongId.Status 'a header for another id is not this package'
+    Assert-True ($null -eq $wrongId.Description) 'and yields no description'
+
+    $german = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'synth-localized-de.txt') -ExpectedId 'Microsoft.VisualStudioCode'
+    Assert-Equal 'UnrecognizedOutput' $german.Status 'localized header/labels are not guessed at'
+
+    $unknownBoundary = $vscodeText.Replace('Homepage: https://code.visualstudio.com/', 'Startseite: https://code.visualstudio.com/')
+    $boundary = ConvertFrom-PDWinGetShowOutput -Text $unknownBoundary -ExpectedId 'Microsoft.VisualStudioCode'
+    Assert-Equal 'UnrecognizedOutput' $boundary.Status 'an unknown field after Description is not a safe boundary'
+
+    $unknownBefore = $vscodeText.Replace('Moniker: vscode', 'Spitzname: vscode')
+    Assert-Equal 'UnrecognizedOutput' (ConvertFrom-PDWinGetShowOutput -Text $unknownBefore -ExpectedId 'Microsoft.VisualStudioCode').Status 'unknown label before Description'
+
+    Assert-Equal 'UnrecognizedOutput' (ConvertFrom-PDWinGetShowOutput -Text '' -ExpectedId 'x.y').Status 'empty output'
+}
+
+Add-TestCase 'D07d' 'Parser strips ANSI escapes, spinner overwrites and progress bars' {
+    $esc = [string][char]27
+    $cr  = [string][char]13
+    $block = [string][char]0x2588
+    $spinner = '   - ' + $cr + '   \ ' + $cr + '   | ' + $cr + '   / ' + $cr + $esc + '[0G' + $esc + '[2K'
+    $progress = '  ' + ($block * 10) + '  1.00 MB / 2.00 MB' + $cr + $esc + '[2K' + $esc + '[?25h'
+    $body = (Get-PDWinGetFixture 'winget-7zip.7zip.txt').Replace('Description: A file', ('Description: ' + $esc + '[1mA' + $esc + '[0m file'))
+    $text = $spinner + $progress + "`r`n" + $esc + '[?25l' + $body
+
+    $parsed = ConvertFrom-PDWinGetShowOutput -Text $text -ExpectedId '7zip.7zip'
+    Assert-Equal 'Found' $parsed.Status 'header still recognized behind spinner output'
+    Assert-Equal 'A file archiver with a high compression ratio.' $parsed.Description 'no escape bytes left in the value'
+    Assert-NotMatch '\x1B' $parsed.Description 'no ESC'
+}
+
+Add-TestCase 'D07e' 'Lookup returns exactly one object when winget is absent or the id is invalid' {
+    $absent = Join-Path $tempRoot 'no-such-dir\winget.exe'
+    $results = @(Get-WinGetAppDescription -WinGetId '7zip.7zip' -WinGetPath $absent)
+    Assert-Equal 1 $results.Count 'exactly one object on the pipeline'
+    Assert-Equal 'Unavailable' $results[0].Status 'missing winget'
+    Assert-True ($results[0].Found -eq $false) 'Found is false'
+    Assert-True ($null -eq $results[0].Description -and $null -eq $results[0].Source -and $null -eq $results[0].PackageId) 'no data fields'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($results[0].Message)) 'operator message present'
+
+    # Shell metacharacters are refused before any argument string exists (and before winget is resolved).
+    $hostile = @(Get-WinGetAppDescription -WinGetId '7zip.7zip --source x & calc' -WinGetPath $absent)
+    Assert-Equal 1 $hostile.Count 'one object'
+    Assert-Equal 'NotFound' $hostile[0].Status 'invalid id is refused'
+    Assert-Like '*valid WinGet ID*' $hostile[0].Message 'and says why'
 }
 
 # ---------------------------------------------------------------------------

@@ -377,9 +377,16 @@ if($GetJSON -eq $True) {
 
 
         Write-Log "This run is asking to install this printer: $PrinterName. Here is all the data on that printer:"
-        $printer = $jsonData.printers | Where-Object { $_.PrinterName -eq $PrinterName }
+        $printer = @($jsonData.printers | Where-Object { $_.PrinterName -eq $PrinterName })
 
-        if ($printer) {
+        # Duplicate names would copy an array into every field and blank them; fail before installing anything
+        if ($printer.Count -gt 1) {
+            Write-Log "'$PrinterName' appears $($printer.Count) times in PrinterData.json; printer names must be unique." "ERROR"
+            Exit 1
+        }
+
+        if ($printer.Count -eq 1) {
+            $printer = $printer[0]
             
             # Write-Log "Formatted list:"
             # $printer | Format-List *
