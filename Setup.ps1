@@ -92,6 +92,57 @@ $GitRunnerTemplate_ScriptPath = "$RepoRoot\Templates\Git-Runner_TEMPLATE.ps1"
 $AdobeUninstallCleanup_ScriptPath = "$RepoRoot\Uninstallers\Adobe_Uninstaller_Suite\Uninstall-AllAdobeProducts-FullClean.ps1"
 # Path to Convert-VendorPack-ToDriverZip.ps1
 $ConvertVendorPackToDriverZip_ScriptPath = "$RepoRoot\Other_Tools\Convert-VendorPack-ToDriverZip.ps1"
+# Path to the Intune Graph helper library (dot-sourced below: functions only, no side effects)
+$InTuneGraphHelperScriptPath = "$RepoRoot\Other_Tools\InTune-GraphAPI_Helpers.ps1"
+# Path to the Intune uploader (dot-sourced below: its script body is skipped when dot-sourced)
+$IntuneUploadScriptPath = "$RepoRoot\Other_Tools\Upload-InTuneWin32App.ps1"
+
+# ---------------------------------------------------------------------------
+# Optional Intune upload feature (spec 3): loaded at SCRIPT scope, functions only
+# ---------------------------------------------------------------------------
+# Two reasons this lives here rather than inside a function:
+#
+#   1. Dot-sourcing inside a function defines those functions in that function's local scope, and
+#      they vanish when it returns. That fails in the strangest possible way: a caller that already
+#      loaded the library works, while a plain "run Setup.ps1" cannot see a single helper.
+#   2. Both files are safe to dot-source. The library is functions only, and the uploader's script
+#      body is guarded by $script:PDUploaderDotSourced, so importing it never runs an upload,
+#      never prints anything, and never writes a log file. Neither file declares a top-level
+#      param() block, because dot-sourcing a script that does writes every one of its parameters
+#      into THIS scope as $null - which would silently erase live wizard state.
+#
+# A failure here is recorded, not fatal: guided manual publishing must keep working when the
+# feature files are missing or the helper library cannot be read, and the menu says why.
+
+$GraphUploadAvailable  = $false
+$GraphUploadLoadError  = $null
+
+try {
+
+    if (-not (Test-Path -LiteralPath $InTuneGraphHelperScriptPath)) {
+        throw "The Graph helper library was not found at $InTuneGraphHelperScriptPath"
+    }
+    . $InTuneGraphHelperScriptPath
+
+    if (-not (Test-Path -LiteralPath $IntuneUploadScriptPath)) {
+        throw "The Intune uploader was not found at $IntuneUploadScriptPath"
+    }
+    . $IntuneUploadScriptPath
+
+    if (-not (Get-Command -Name 'Invoke-PDIntuneUpload' -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw "Upload-InTuneWin32App.ps1 loaded without defining Invoke-PDIntuneUpload; it may be from a different version."
+    }
+    if (-not (Get-Command -Name 'Get-PDGraphCredential' -CommandType Function -ErrorAction SilentlyContinue)) {
+        throw "InTune-GraphAPI_Helpers.ps1 loaded without defining its credential functions; it may be from a different version."
+    }
+
+    $GraphUploadAvailable = $true
+
+} Catch {
+
+    $GraphUploadLoadError = $_.Exception.Message
+
+}
 
 $PublicJSONpath = "$RepoRoot\Templates\ApplicationData_TEMPLATE.json"
 
@@ -4010,9 +4061,810 @@ Function Adobe-Apps-FullCleanup--Uninstall-Local{
 }
 
 
-##########
-## MAIN ##
-########## 
+# ---------------------------------------------------------------------------
+# Intune upload: credential provisioning menu (spec 7.2)
+#
+# Only Graph_API_Upload--InTune-Setup has '--' in its name, because the reflection menu at the end
+# of this script lists every function whose name contains '--'. Everything else here is a helper it
+# calls. None of these functions prompt for metadata or publish anything: they create, test, rotate
+# and remove ONE thing, the credential the uploader uses. Publishing stays with the upload entry
+# point, and the guided walkthrough is always still available.
+#
+# No function here calls exit, and every failure is reported and returns to this menu, because an
+# error in this menu must never close Setup for the technician.
+# ---------------------------------------------------------------------------
+
+Function Show-GraphUploadMenu {
+
+    Clear
+
+    Write-Log "==========================================================================================="
+    Write-Log "============== Intune API upload: setup ==================================================================="
+    Write-Log "==========================================================================================="
+    Write-Log ""
+    Write-Log "This menu manages the credential that PowerDeploy uses to publish apps through Microsoft Graph."
+    Write-Log "It is stored only on this Windows account, protected by Windows DPAPI. It is never stored in the"
+    Write-Log "fleet registry, in this repo, or in any log."
+    Write-Log ""
+    Write-Log "1 - Create or configure the upload application"
+    Write-Log "2 - Enter existing application credentials"
+    Write-Log "3 - Test the saved connection"
+    Write-Log "4 - Rotate this workstation's secret"
+    Write-Log "5 - Show MAA exclusion instructions"
+    Write-Log "6 - Remove saved credentials"
+    Write-Log "0 - Return"
+    Write-Log ""
+
+}
+
+Function Show-GraphUploadError {
+    param(
+        [Parameter(Mandatory = $true)][AllowNull()][object]$Failure
+    )
+
+    # Errors from the Graph helper library arrive already sanitized. Anything else (a .NET fault,
+    # an unexpected cmdlet error) is shown through Remove-UrlCredential as well, so a URL carrying
+    # credentials can never reach the console or the log from here (spec 11.1).
+    $message = 'Unknown error.'
+
+    try {
+        if ($null -ne $Failure.Exception -and -not [string]::IsNullOrWhiteSpace($Failure.Exception.Message)) {
+            $message = [string]$Failure.Exception.Message
+        } elseif ($null -ne $Failure) {
+            $message = [string]($Failure | Out-String).Trim()
+        }
+    } Catch {
+        $message = 'Unknown error.'
+    }
+
+    if (Get-Command -Name 'Remove-UrlCredential' -CommandType Function -ErrorAction SilentlyContinue) {
+        $message = Remove-UrlCredential -Url $message
+    }
+
+    foreach ($line in ($message -split "`r?`n")) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Log $line.Trim() 'ERROR' }
+    }
+}
+
+Function Read-GraphUploadYesNo {
+    param(
+        [Parameter(Mandatory = $true)][string]$Question,
+        [bool]$Default = $true,
+        [string]$Note = ''
+    )
+
+    Write-Log $Question 'WARNING'
+
+    if (-not [string]::IsNullOrWhiteSpace($Note)) {
+        foreach ($line in ($Note -split "`r?`n")) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) { Write-Log ("     " + $line.Trim()) 'INFO2' }
+        }
+    }
+
+    $hint = '(y/n) [n]'
+    if ($Default) { $hint = '(y/n) [y]' }
+
+    While ($true) {
+
+        $Answer = ([string](Read-Host $hint)).Trim().ToLowerInvariant()
+
+        if ([string]::IsNullOrWhiteSpace($Answer)) { return $Default }
+        if ($Answer -eq 'y') { return $true }
+        if ($Answer -eq 'n') { return $false }
+
+        Write-Log "Invalid input. Please enter 'y' for yes or 'n' for no." 'ERROR'
+
+    }
+}
+
+Function Read-GraphUploadTenantId {
+
+    # Spec 7.2 step 1: collect the tenant ID, then sign in. A value that is not a GUID is refused
+    # rather than sent to the sign-in, and Enter is allowed to mean "accept whichever tenant the
+    # account signs in to" - the session is still verified before anything is written.
+    While ($true) {
+
+        Write-Log "Which tenant owns the upload application?" 'WARNING'
+        Write-Log "     Enter its Tenant ID (GUID). Press Enter to sign in without naming a tenant." 'INFO2'
+
+        $Answer = ([string](Read-Host "Tenant ID")).Trim()
+
+        if ([string]::IsNullOrWhiteSpace($Answer)) {
+            if (-not (Read-GraphUploadYesNo -Question "Continue without naming the tenant?" -Default $false)) { return $null }
+            return ''
+        }
+
+        $Parsed = [guid]::Empty
+        if ([guid]::TryParse($Answer, [ref]$Parsed)) { return $Parsed.ToString() }
+
+        Write-Log "That is not a Tenant ID GUID, so it was not used." 'ERROR'
+
+    }
+}
+
+Function Read-GraphUploadSecretLifetime {
+
+    param([int]$Default = 180)
+
+    # Spec 7.2 step 7: six months by default, but a different lifetime consistent with tenant
+    # policy is accepted. The service still decides what the tenant really allows.
+    While ($true) {
+
+        Write-Log "How many days should the new secret be valid for?" 'WARNING'
+        Write-Log "     Press Enter for the default of $Default days (about six months)." 'INFO2'
+
+        $Answer = ([string](Read-Host "Days")).Trim()
+
+        if ([string]::IsNullOrWhiteSpace($Answer)) { return $Default }
+
+        $Days = 0
+        if (-not [int]::TryParse($Answer, [ref]$Days)) {
+            Write-Log "Please enter a whole number of days." 'ERROR'
+            continue
+        }
+
+        if ($Days -lt 1 -or $Days -gt ([int]$PDGraph.MaxSecretLifetimeDays)) {
+            Write-Log "Please enter between 1 and $([int]$PDGraph.MaxSecretLifetimeDays) days." 'ERROR'
+            continue
+        }
+
+        return $Days
+
+    }
+}
+
+Function Connect-GraphUploadAdminSession {
+
+    param([switch]$IncludeConsent)
+
+    # The upload identity is never allowed to manage applications (spec 7.1), so anything here that
+    # touches Entra is done by a temporary sign-in as an administrator. This function owns the
+    # prompts; the library owns the connection and its verification.
+    $Prerequisite = Get-PDGraphProvisioningPrerequisite
+
+    if (-not $Prerequisite.Available) {
+        Write-Log $Prerequisite.Message 'WARNING'
+        return $null
+    }
+
+    $TenantId = Read-GraphUploadTenantId
+    if ($null -eq $TenantId) {
+        Write-Log "Cancelled; no sign-in was attempted." 'WARNING'
+        return $null
+    }
+
+    Write-Log "Opening a sign-in for Microsoft Graph. Your browser may open, and this sign-in is used only while this menu is running." 'INFO2'
+
+    $Connect = Connect-PDGraphInteractive -TenantId $TenantId -IncludeConsent:$IncludeConsent
+
+    if ($Connect.Reason -eq 'ExistingContext') {
+
+        Write-Log $Connect.Message 'WARNING'
+        Write-Log "     r - reuse that sign-in" 'INFO2'
+        Write-Log "     s - sign in again instead" 'INFO2'
+        Write-Log "     anything else - go back" 'INFO2'
+
+        $Answer = ([string](Read-Host "r/s")).Trim().ToLowerInvariant()
+
+        if ($Answer -eq 'r') {
+            $Connect = Connect-PDGraphInteractive -TenantId $TenantId -ReuseExistingContext
+        } elseif ($Answer -eq 's') {
+            $Connect = Connect-PDGraphInteractive -TenantId $TenantId -IncludeConsent:$IncludeConsent -ReplaceExistingContext
+        } else {
+            Write-Log "Cancelled; the existing sign-in was left as it was." 'WARNING'
+            return $null
+        }
+
+    }
+
+    if (-not $Connect.Success) {
+        Write-Log $Connect.Message 'ERROR'
+        return $null
+    }
+
+    Write-Log $Connect.Message 'SUCCESS'
+    return $Connect.Session
+}
+
+Function Show-GraphUploadSteps {
+
+    param([AllowNull()][object]$Steps)
+
+    foreach ($step in @(Get-PDGraphItems -Payload $Steps)) {
+        if ($null -eq $step) { continue }
+
+        $name    = [string](Get-PDGraphPropertyValue -Object $step -Name 'Step')
+        $ok      = [bool](Get-PDGraphPropertyValue -Object $step -Name 'Success')
+        $message = [string](Get-PDGraphPropertyValue -Object $step -Name 'Message')
+        $status  = 'OK   '
+        if (-not $ok) { $status = 'FAILED' }
+
+        Write-Log ("     {0} {1,-22} {2}" -f $status, $name, $message) 'INFO2'
+    }
+}
+
+Function Show-GraphUploadCredentialState {
+
+    $summary = Get-PDGraphCredentialSummary
+
+    Write-Log ""
+
+    if (-not $summary.Stored) {
+        Write-Log "No credential is stored for this Windows account yet." 'WARNING'
+        Write-Log "     Expected at: $($summary.Path)" 'INFO2'
+        return $summary
+    }
+
+    Write-Log "Stored credential for this Windows account:" 'WARNING'
+    Write-Log ("     Application: {0}" -f [string]$summary.AppDisplayName) 'INFO2'
+    Write-Log ("     Tenant ID:   {0}" -f [string]$summary.TenantId) 'INFO2'
+    Write-Log ("     Client ID:   {0}" -f [string]$summary.ClientId) 'INFO2'
+
+    if ($summary.Usable) {
+        Write-Log ("     Secret expires: {0} ({1} day(s))" -f $summary.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture), $summary.DaysUntilExpiry) 'INFO2'
+        Write-Log ("     Secret key id:  {0}" -f $(if ([string]::IsNullOrWhiteSpace($summary.SecretKeyId)) { 'not recorded (rotation will report the old key for manual cleanup)' } else { [string]$summary.SecretKeyId })) 'INFO2'
+    } else {
+        Write-Log "     The file exists but is not usable: $($summary.Message)" 'ERROR'
+    }
+
+    foreach ($warning in @($summary.Warnings)) {
+        if (-not [string]::IsNullOrWhiteSpace($warning)) { Write-Log "     WARNING: $warning" 'WARNING' }
+    }
+
+    Write-Log "     (The secret value itself is never shown.)" 'INFO2'
+
+    return $summary
+}
+
+Function Invoke-GraphUploadProvisionApplication {
+
+    # Spec 7.2 "Create/configure". The prompts and the confirmation are here; every tenant write is
+    # done by Start-PDGraphUploadProvisioning, which is where the step-by-step behaviour lives and is
+    # tested. An existing sign-in is never reused without asking, and one opened here is closed here.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "CREATE OR CONFIGURE THE UPLOAD APPLICATION"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+
+    $Prerequisite = Get-PDGraphProvisioningPrerequisite
+
+    if (-not $Prerequisite.Available) {
+        Write-Log $Prerequisite.Message 'WARNING'
+        Write-Log ""
+        Write-Log "Option 2 (enter existing credentials) works without it, and guided manual publishing is always available." 'WARNING'
+        return
+    }
+
+    $LifetimeDays = Read-GraphUploadSecretLifetime -Default ([int]$PDGraph.DefaultSecretLifetimeDays)
+
+    $Session = Connect-GraphUploadAdminSession -IncludeConsent
+    if ($null -eq $Session) { return }
+
+    try {
+
+        Write-Log ""
+        Write-Log "Looking for the upload application in this tenant..." 'INFO2'
+
+        $Found         = Find-PDEntraUploadApp
+        $ApplicationId = ''
+
+        Write-Log "     $($Found.Message)" 'INFO2'
+
+        if ($Found.Multiple) {
+
+            Write-Log ""
+            Write-Log "More than one application has that name, so this tool will not guess between them:" 'WARNING'
+
+            foreach ($Candidate in @($Found.Apps)) {
+                Write-Log ("     {0}   ({1}, created {2})" -f [string]$Candidate.ApplicationId, [string]$Candidate.DisplayName, [string]$Candidate.Created) 'INFO2'
+            }
+
+            While ($true) {
+
+                $Answer = ([string](Read-Host "Enter the application id to use, or press Enter to go back")).Trim()
+
+                if ([string]::IsNullOrWhiteSpace($Answer)) {
+                    Write-Log "Cancelled; nothing was changed." 'WARNING'
+                    return
+                }
+
+                foreach ($Candidate in @($Found.Apps)) {
+                    if (([string]$Candidate.ApplicationId) -ieq $Answer) { $ApplicationId = $Answer; break }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($ApplicationId)) { break }
+
+                Write-Log "That id is not one of the applications listed above." 'ERROR'
+
+            }
+
+        }
+
+        Write-Log ""
+
+        $ReviewFirst = Read-GraphUploadYesNo -Question "Review the steps first? It reads this tenant and changes nothing." -Default $true
+
+        if ($ReviewFirst) {
+
+            Write-Log ""
+            $Review = Start-PDGraphUploadProvisioning -Session $Session -ApplicationId $ApplicationId -SecretLifetimeDays $LifetimeDays -DryRun
+
+            Show-GraphUploadSteps -Steps $Review.Steps
+
+            foreach ($Warning in @($Review.Warnings)) {
+                if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            }
+
+            Write-Log ""
+            Write-Log $Review.Message 'INFO2'
+            Write-Log ""
+
+            if (-not (Read-GraphUploadYesNo -Question "Make those changes in this tenant now?" -Default $false)) {
+                Write-Log "Cancelled; nothing was changed." 'WARNING'
+                return
+            }
+
+        }
+
+        Write-Log ""
+        Write-Log "Working. A browser sign-in may already have been used; nothing here needs it again..." 'INFO2'
+
+        $Result = Start-PDGraphUploadProvisioning -Session $Session -ApplicationId $ApplicationId -SecretLifetimeDays $LifetimeDays
+
+        Show-GraphUploadSteps -Steps $Result.Steps
+
+        foreach ($Warning in @($Result.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+        }
+
+        Write-Log ""
+
+        if ($Result.Success) {
+
+            Write-Log $Result.Message 'SUCCESS'
+            Write-Log ""
+            Write-Log "Next: option 5 shows how to ask for the Multi-Admin Approval exclusion. Publishing is then offered in the printer and app wizards." 'WARNING'
+
+        } else {
+
+            Write-Log $Result.Message 'ERROR'
+            Write-Log ""
+
+            if ($Result.Reason -eq 'NeedsSelection') {
+                Write-Log "Run this option again and choose one of the application ids it listed." 'WARNING'
+            }
+
+            Write-Log "Nothing was saved to this machine unless the steps above say it was. Guided manual publishing is still available from the printer and app wizards." 'WARNING'
+
+        }
+
+    } Catch {
+
+        Show-GraphUploadError $_
+        Write-Log "Guided manual publishing is still available from the printer and app wizards." 'WARNING'
+
+    } Finally {
+
+        $Closed = Disconnect-PDGraphInteractive -Session $Session
+        Write-Log "     $($Closed.Message)" 'INFO2'
+
+    }
+
+}
+
+Function Invoke-GraphUploadEnterCredential {
+
+    # Spec 7.2 "Manual entry": TenantId, ClientId, expiry and secret (Read-Host -AsSecureString),
+    # tested against the tenant BEFORE the local configuration is replaced. AppObjectId and
+    # SecretKeyId may be absent and are never invented; without a key id, rotation reports the old
+    # secret for manual revocation instead of guessing at it.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "ENTER EXISTING APPLICATION CREDENTIALS"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+    Write-Log "Use this when the application already exists in your tenant and its secret was created somewhere"
+    Write-Log "else. No browser sign-in is needed: the secret is tested with the same client-credentials call the"
+    Write-Log "upload itself uses. Nothing is saved unless that test passes." 'WARNING'
+    Write-Log ""
+
+    Show-GraphUploadCredentialState | Out-Null
+    Write-Log ""
+
+    While ($true) {
+
+        $Answer = ([string](Read-Host "Tenant ID (GUID)")).Trim()
+        $Parsed = [guid]::Empty
+        if ([guid]::TryParse($Answer, [ref]$Parsed)) { $TenantId = $Parsed.ToString(); break }
+        Write-Log "A tenant ID GUID is required, because it is stored with the credential." 'ERROR'
+
+    }
+
+    While ($true) {
+
+        $Answer = ([string](Read-Host "Client ID / application ID (GUID)")).Trim()
+        $Parsed = [guid]::Empty
+        if ([guid]::TryParse($Answer, [ref]$Parsed)) { $ClientId = $Parsed.ToString(); break }
+        Write-Log "A client ID GUID is required." 'ERROR'
+
+    }
+
+    Write-Log ""
+    Write-Log "Type the secret below. It is not echoed, it is not written to the log, and it is stored only as a"
+    Write-Log "DPAPI-protected value for this Windows account." 'WARNING'
+
+    try {
+        $ClientSecret = Read-Host "Secret value" -AsSecureString
+    } Catch {
+        Write-Log "The secret could not be entered, so nothing was changed." 'ERROR'
+        return
+    }
+
+    $DefaultExpiry = [System.DateTimeOffset]::UtcNow.AddDays([double]$PDGraph.DefaultSecretLifetimeDays)
+    $DefaultText   = $DefaultExpiry.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
+
+    While ($true) {
+
+        Write-Log "When does this secret expire? Enter a date, or press Enter for $DefaultText (today + $([int]$PDGraph.DefaultSecretLifetimeDays) days)." 'WARNING'
+        $Answer = ([string](Read-Host "Secret expiry")).Trim()
+
+        if ([string]::IsNullOrWhiteSpace($Answer)) { $ExpiresOn = $DefaultExpiry; break }
+
+        $Parsed = [System.DateTimeOffset]::UtcNow
+        if ([System.DateTimeOffset]::TryParse($Answer, [System.Globalization.DateTimeFormatInfo]::InvariantInfo, [System.Globalization.DateTimeStyles]::None, [ref]$Parsed)) {
+            $ExpiresOn = $Parsed
+            break
+        }
+
+        Write-Log "That date could not be read. Try a date like 2026-04-09." 'ERROR'
+
+    }
+
+    Write-Log ""
+    Write-Log "The secret's key ID lets rotation revoke THIS secret once a new one works. Leave it blank if you do not"
+    Write-Log "know it: the credential still works, and rotation will report the old key for you to revoke by hand." 'WARNING'
+
+    $SecretKeyId = ''
+    $KeyAnswer   = ([string](Read-Host "Secret key ID (GUID, or Enter for unknown)")).Trim()
+
+    if (-not [string]::IsNullOrWhiteSpace($KeyAnswer)) {
+        $ParsedKey = [guid]::Empty
+        if ([guid]::TryParse($KeyAnswer, [ref]$ParsedKey)) {
+            $SecretKeyId = $ParsedKey.ToString()
+        } else {
+            Write-Log "That is not a GUID, so it was left out. The credential will work; rotation will report the old key for manual cleanup." 'WARNING'
+            $SecretKeyId = ''
+        }
+    }
+
+    $DisplayName = ([string](Read-Host "Application display name (Enter for $($PDGraph.AppDisplayName))")).Trim()
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName = [string]$PDGraph.AppDisplayName }
+
+    Write-Log ""
+    Write-Log "Testing those credentials against your tenant (nothing is saved yet)..." 'INFO2'
+
+    try {
+
+        $Check = Test-PDGraphUploadCandidateCredential -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret `
+                        -SecretExpiresOn $ExpiresOn -SecretKeyId $SecretKeyId -AppDisplayName $DisplayName
+
+        foreach ($Warning in @($Check.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+        }
+
+        if (-not $Check.Valid) {
+            Write-Log ""
+            Write-Log $Check.Message 'ERROR'
+            Write-Log "Your stored credential was not changed." 'WARNING'
+            return
+        }
+
+        Write-Log "     $($Check.Message)" 'SUCCESS'
+
+        $Saved = Save-PDGraphCredential -Credential $Check.Credential
+
+        Write-Log ""
+        Write-Log "Saved for this Windows account: $($Saved.Path)" 'SUCCESS'
+        Write-Log "     Expires: $($Saved.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture))" 'INFO2'
+        Write-Log "     Option 3 re-tests this at any time. Option 4 rotates it." 'WARNING'
+
+    } Catch {
+
+        Show-GraphUploadError $_
+
+    }
+
+}
+
+Function Invoke-GraphUploadTestConnection {
+
+    # Spec 7.2 "Test": token, the two roles, one small Intune read. It reports permissions and expiry,
+    # and says plainly that a read cannot prove the Multi-Admin Approval exclusion exists.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "TEST THE SAVED CONNECTION"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+
+    try {
+
+        $Result = Test-PDGraphUploadConnection
+
+        Write-Log ("     Roles in the token: {0}" -f (@($Result.Roles) -join ', ')) 'INFO2'
+
+        if (@($Result.MissingRoles).Count -gt 0) {
+            Write-Log "     Missing roles: $((@($Result.MissingRoles)) -join ', ')" 'ERROR'
+        }
+
+        if ($null -ne $Result.TokenExpiresOn) {
+            Write-Log "     Token expires: $($Result.TokenExpiresOn)" 'INFO2'
+        }
+
+        Write-Log ""
+
+        if ($Result.Success) {
+            Write-Log $Result.Message 'SUCCESS'
+        } else {
+            Write-Log $Result.Message 'ERROR'
+        }
+
+        foreach ($Warning in @($Result.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+        }
+
+    } Catch {
+
+        Show-GraphUploadError $_
+        Write-Log "If no credential is stored yet, use option 1 or option 2." 'WARNING'
+
+    }
+
+}
+
+Function Invoke-GraphUploadRotateSecret {
+
+    # Spec 7.4, in order: add the replacement while the old one still works, test it, save it, and
+    # only then revoke the OLD secret by its recorded key id. If the test or the save fails the old
+    # credential is still in place; if only the revocation fails, the new secret stays working and the
+    # surviving old key is reported. Nothing is ever revoked by display name.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "ROTATE THIS WORKSTATION'S SECRET"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+
+    $Prerequisite = Get-PDGraphProvisioningPrerequisite
+
+    if (-not $Prerequisite.Available) {
+        Write-Log $Prerequisite.Message 'WARNING'
+        return
+    }
+
+    $Summary = Show-GraphUploadCredentialState
+
+    if (-not $Summary.Stored) {
+        Write-Log "There is nothing to rotate yet. Use option 1 or option 2 first." 'WARNING'
+        return
+    }
+
+    $LifetimeDays = Read-GraphUploadSecretLifetime -Default ([int]$PDGraph.DefaultSecretLifetimeDays)
+
+    $Session = Connect-GraphUploadAdminSession
+    if ($null -eq $Session) { return }
+
+    try {
+
+        Write-Log ""
+        Write-Log "Adding a replacement secret, testing it, then revoking the old one..." 'INFO2'
+
+        $Result = Start-PDGraphSecretRotation -Session $Session -SecretLifetimeDays $LifetimeDays
+
+        Write-Log ""
+
+        if ($Result.Success) {
+            Write-Log $Result.Message 'SUCCESS'
+        } else {
+            Write-Log $Result.Message 'ERROR'
+            Write-Log "Your previous credential is still in place, so uploads keep working as they did before." 'WARNING'
+        }
+
+        foreach ($Warning in @($Result.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+        }
+
+    } Catch {
+
+        Show-GraphUploadError $_
+
+    } Finally {
+
+        $Closed = Disconnect-PDGraphInteractive -Session $Session
+        Write-Log "     $($Closed.Message)" 'INFO2'
+
+    }
+
+}
+
+Function Show-GraphUploadMaaInstructions {
+
+    # Spec 7.5: displays the configured name and client ID plus the portal path, and performs no
+    # Graph reads or writes about MAA - this has to work when the connection is the broken part.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "MULTI-ADMIN APPROVAL (MAA) EXCLUSION"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+
+    $Guidance = Get-PDGraphUploadMaaGuidance
+
+    Write-Log $Guidance.Message 'WARNING'
+    Write-Log "     Client ID: $($Guidance.ClientId)" 'INFO2'
+    Write-Log ""
+    Write-Log "In the portal:" 'WARNING'
+
+    foreach ($Step in @($Guidance.Steps)) {
+        Write-Log "     $Step" 'INFO2'
+    }
+
+    Write-Log ""
+
+    foreach ($Note in @($Guidance.Notes)) {
+        Write-Log "     - $Note" 'INFO2'
+    }
+
+    Write-Log ""
+
+}
+
+Function Invoke-GraphUploadRemoveCredential {
+
+    # Spec 7.4 "Removal": the local file, and optionally its own Entra key. Never the shared
+    # application, never its service principal, and never another administrator's secret.
+
+    Write-Log ""
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log "REMOVE SAVED CREDENTIALS"
+    Write-Log "-------------------------------------------------------------------------------------------"
+    Write-Log ""
+
+    $Summary = Show-GraphUploadCredentialState
+
+    if (-not $Summary.Stored) {
+        Write-Log "There is no stored credential to remove." 'WARNING'
+        return
+    }
+
+    Write-Log ""
+    Write-Log "Removal only affects this workstation's stored credential. It never deletes the shared application,"
+    Write-Log "never removes its service principal, and never touches another administrator's secret. The Entra secret"
+    Write-Log "itself stays active unless you also revoke it below." 'WARNING'
+    Write-Log ""
+
+    $Revoke = Read-GraphUploadYesNo -Question "Also revoke this credential's own secret in Entra?" -Default $false `
+                                        -Note "Revoking needs a temporary administrator sign-in, and only revokes the secret whose key id is recorded here ($($(if ([string]::IsNullOrWhiteSpace($Summary.SecretKeyId)) { 'none recorded - it cannot be revoked from here' } else { [string]$Summary.SecretKeyId }))). Choosing no leaves that secret active until someone revokes it in Entra."
+
+    $Session = $null
+
+    if ($Revoke) {
+
+        $Session = Connect-GraphUploadAdminSession
+        if ($null -eq $Session) { return }
+
+    }
+
+    try {
+
+        $Result = Remove-PDGraphUploadCredential -RevokeEntraKey:$Revoke -Session $Session
+
+        Write-Log ""
+
+        if ($Result.Success) {
+            Write-Log $Result.Message 'SUCCESS'
+        } else {
+            Write-Log $Result.Message 'ERROR'
+        }
+
+        foreach ($Warning in @($Result.Warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+        }
+
+        if ($Result.Removed) {
+            Write-Log ""
+            Write-Log "Publishing through the API is unavailable again until a credential exists; the wizards fall back to guided manual publishing." 'WARNING'
+        }
+
+    } Catch {
+
+        Show-GraphUploadError $_
+
+    } Finally {
+
+        if ($null -ne $Session) {
+            $Closed = Disconnect-PDGraphInteractive -Session $Session
+            Write-Log "     $($Closed.Message)" 'INFO2'
+        }
+
+    }
+
+}
+
+Function Graph_API_Upload--InTune-Setup {
+
+    <#
+        .SYNOPSIS
+        Provisioning menu for publishing apps through Microsoft Graph (spec 7.2).
+
+        .DESCRIPTION
+        Creates/configures the single-tenant upload application, takes hand-entered credentials, tests
+        them, rotates this workstation's secret, shows the Multi-Admin Approval exclusion steps, and
+        removes stored credentials. Everything else (metadata, groups, publishing) happens in the
+        printer and application wizards; this menu only makes the credential exist and stay healthy.
+
+        Publishing through the API stays optional: with no credential here, the wizards print the
+        guided manual walkthrough exactly as before.
+    #>
+
+    Write-Log ""
+    Write-Log "==========================================================================================="
+    Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | START"
+    Write-Log "==========================================================================================="
+    Write-Log ""
+
+    if (-not $GraphUploadAvailable) {
+
+        Write-Log "The Intune upload feature is not available on this machine, so this menu cannot run." 'ERROR'
+        Write-Log ""
+        Write-Log "Reason: $GraphUploadLoadError" 'ERROR'
+        Write-Log ""
+        Write-Log "Guided manual publishing is unaffected and still works from the printer and app wizards." 'WARNING'
+        Write-Log ""
+        Pause
+        return
+
+    }
+
+    While ($true) {
+
+        Show-GraphUploadMenu
+
+        $Choice = ([string](Read-Host "Enter the # of your desired option")).Trim()
+
+        if ($Choice -eq '0') { break }
+
+        if ($Choice -eq '1') {
+            Invoke-GraphUploadProvisionApplication
+        } elseif ($Choice -eq '2') {
+            Invoke-GraphUploadEnterCredential
+        } elseif ($Choice -eq '3') {
+            Invoke-GraphUploadTestConnection
+        } elseif ($Choice -eq '4') {
+            Invoke-GraphUploadRotateSecret
+        } elseif ($Choice -eq '5') {
+            Show-GraphUploadMaaInstructions
+        } elseif ($Choice -eq '6') {
+            Invoke-GraphUploadRemoveCredential
+        } else {
+            Write-Log "That is not one of the options above." 'ERROR'
+        }
+
+        Write-Log ""
+        Pause
+
+    }
+
+    Write-Log "==========================================================================================="
+    Write-Log "SCRIPT: $LocalFileName | FUNCTION: $($MyInvocation.MyCommand.Name) | END"
+    Write-Log "==========================================================================================="
+    Write-Log ""
+
+}
+
 
 # Setup 
 # Write-Log "SCRIPT: $LocalFileName | START" "INFO2"
