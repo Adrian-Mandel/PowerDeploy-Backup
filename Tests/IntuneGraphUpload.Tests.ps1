@@ -173,6 +173,17 @@ Write-Host ""
 # ---------------------------------------------------------------------------
 
 Add-TestCase 'M2-01' 'Dot-sourcing the library is silent and has no side effects' {
+    # The real credential folder may legitimately exist on a workstation that has been provisioned,
+    # so the check is "import changed nothing there", not "the folder does not exist".
+    $realStore = Join-Path $env:LOCALAPPDATA 'PowerDeploy'
+    $snapshot = {
+        if (-not (Test-Path -LiteralPath $realStore)) { return 'absent' }
+        # Files only: 5.1 can report a folder's own timestamp from a stale enumeration cache, while a
+        # new, changed, or removed file (a lock, a temp file, a rewritten credential) still shows.
+        return ((@(Get-ChildItem -LiteralPath $realStore -Recurse -Force | ForEach-Object { if ($_.PSIsContainer) { '{0}|dir' -f $_.FullName } else { '{0}|{1}|{2}' -f $_.FullName, $_.LastWriteTimeUtc.Ticks, $_.Length } }) | Sort-Object) -join "`n")
+    }
+    $before = & $snapshot
+
     # Import into a throwaway child scope purely to observe what import-time output happens.
     $imported = & {
         . $HelperPath
@@ -181,7 +192,7 @@ Add-TestCase 'M2-01' 'Dot-sourcing the library is silent and has no side effects
     Assert-True ($null -eq $imported -or @($imported).Count -eq 0) "Importing must emit no output (got: $imported)"
 
     # Importing must not touch the credential store, authenticate, or write anywhere.
-    Assert-True (-not (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'PowerDeploy'))) 'Import must not create the real credential folder'
+    Assert-Equal $before (& $snapshot) 'Import must not create or change anything in the real credential folder'
 }
 
 . $HelperPath
@@ -1358,11 +1369,21 @@ function Reset-PDM3Scenario {
         # Duplicate app lookup
         if ($decoded -like 'https://graph.microsoft.com/beta/deviceAppManagement/mobileApps*') {
             $wanted = Get-PDMockFilterLiteral -DecodedUri $decoded
+            $prefix = $null
+            $starts = [regex]::Match($decoded, "startswith\(displayName,'((?:[^']|'')*)'\)")
+            if ($starts.Success) { $prefix = $starts.Groups[1].Value.Replace("''", "'") }
 
+            # Like the live service: an eq literal containing [ or ] matches nothing, while
+            # startswith matches by prefix.
             $matched = @()
-            if ($null -ne $wanted) {
+            if ($null -ne $wanted -and ($wanted.IndexOfAny([char[]]@('[', ']')) -lt 0)) {
                 foreach ($app in @($state.Apps)) {
                     if (([string]$app.displayName) -eq $wanted) { $matched += $app }
+                }
+            }
+            if ($null -ne $prefix) {
+                foreach ($app in @($state.Apps)) {
+                    if (([string]$app.displayName).StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { $matched += $app }
                 }
             }
             return (New-PDMockJsonResponse -Json (New-PDMockValuePage -Value $matched))
@@ -1791,6 +1812,20 @@ Add-TestCase 'A01' 'A missing category warns, creates nothing, and associates no
     Assert-Equal 0 $categoryCalls.Count 'the categories endpoint is not even queried'
 
     Clear-PDMockGraph
+}
+
+Add-TestCase 'A03' 'a duplicate whose name has [brackets] is still found' {
+    # Live finding 2026-10-12: Intune's displayName eq filter never matches names with brackets,
+    # and development-mode names always have them ("[PUBLIC-DEVELOPMENT] [VER: ...]").
+    $name = 'PRINTER - SPED: Vanino [PUBLIC-DEVELOPMENT] [VER: e0e4f3c]'
+    Reset-PDM3Scenario -Apps @(@{ id = 'dup-1'; displayName = $name; publishingState = 'published' },
+                              @{ id = 'other-1'; displayName = 'PRINTER - SPED: Vanino [PROD]'; publishingState = 'published' })
+
+    $inputs    = New-PDM3InputSet -Case 'a03-brackets'
+    $preflight = Invoke-PDM3Preflight -Inputs $inputs -DisplayName $name
+    $found     = @($preflight.DuplicateApps)
+    Assert-Equal 1 $found.Count 'exactly the app with the identical name'
+    Assert-Equal 'dup-1' ([string]$found[0].Id) 'and not the one that only shares the prefix'
 }
 
 Add-TestCase 'A02' 'Duplicate display names are review data, then an explicit switch gates execution' {
@@ -2285,6 +2320,7 @@ function Reset-PDM4Scenario {
         AppFailAfter      = $AppFailAfter
         FailRules         = @($FailRules)
         RenewCount        = 0
+        FilePhase         = ''
         StorageRequests   = @()
         StorageBodies     = @()
         Committed         = $false
@@ -2364,7 +2400,7 @@ function Reset-PDM4Scenario {
                 size                          = 462
                 sizeEncrypted                 = 512
                 isDependency                  = $false
-                azureStorageUriRequestPending = $true
+                uploadState                   = 'azureStorageUriRequestPending'
             } | ConvertTo-Json -Compress))
         }
 
@@ -2372,6 +2408,7 @@ function Reset-PDM4Scenario {
         if (($method -eq 'Post') -and ($path -like ('*/files/*/microsoft.graph.renewUpload'))) {
             $state.RenewCount = [int]$state.RenewCount + 1
             $state.CurrentSas = (Get-PDM4SasUri -Tag ('renewed-' + [string]$state.RenewCount))
+            $state.FilePhase  = 'azureStorageUriRenewalSuccess'
             return (New-PDMockJsonResponse -Status 200 -Json '{}')
         }
 
@@ -2383,6 +2420,7 @@ function Reset-PDM4Scenario {
             # The commit body carries the encryption keys; the mock keeps it so a case can prove
             # it was sent, and proves separately that it never reached a message.
             $script:M4.CommitBody = $bodyText
+            $state.FilePhase      = 'commitFileSuccess'
             return (New-PDMockJsonResponse -Status 200 -Json '{}')
         }
 
@@ -2398,13 +2436,14 @@ function Reset-PDM4Scenario {
                 $queued = Get-PDM4Queued -Key 'FileQueue' -Default $null
                 if ($null -ne $queued) { return $queued }
 
-                # Default: every phase the case has not scripted says 'ready', with the current SAS.
+                # Default: like the real service, ONE uploadState that follows the actions the
+                # uploader has taken - storage URI ready, then renewed, then committed.
+                $phase = [string]$state.FilePhase
+                if ([string]::IsNullOrWhiteSpace($phase)) { $phase = 'azureStorageUriRequestSuccess' }
                 return (New-PDMockJsonResponse -Json (@{
-                    id                            = $state.FileId
-                    azureStorageUriRequestSuccess = $true
-                    azureStorageUriRenewalSuccess = $true
-                    commitFileRequestSuccess      = $true
-                    azureStorageUri               = $state.CurrentSas
+                    id              = $state.FileId
+                    uploadState     = $phase
+                    azureStorageUri = $state.CurrentSas
                 } | ConvertTo-Json -Compress))
             }
 
@@ -2473,6 +2512,16 @@ function Reset-PDM4Scenario {
 
         if (($method -eq 'Post') -and ($path -like ('*/mobileApps/' + $state.AppId + '/*assign*'))) {
             $script:M4.AssignBody  = [System.Text.Encoding]::UTF8.GetString($Request.BodyBytes)
+
+            # Like the service: the action body is { "mobileAppAssignments": [...] } and nothing else.
+            $assignParsed = $null
+            try { $assignParsed = $script:M4.AssignBody | ConvertFrom-Json } catch { }
+            $rootNames = @()
+            if ($null -ne $assignParsed) { $rootNames = @($assignParsed.PSObject.Properties | ForEach-Object { $_.Name }) }
+            if ((@($rootNames).Count -ne 1) -or ($rootNames[0] -cne 'mobileAppAssignments')) {
+                return (New-PDMockJsonResponse -Status 400 -Json (@{ error = @{ code = 'ModelValidationFailure'; message = ("The assign body must be exactly {{ mobileAppAssignments: [...] }}; got: {0}" -f ($rootNames -join ', ')) } } | ConvertTo-Json -Compress))
+            }
+
             $script:M4.Assigned    = $true
             return (New-PDMockJsonResponse -Status 200 -Json '{}')
         }
@@ -2589,11 +2638,13 @@ function Assert-PDM4Order {
 function New-PDM4FilePending {
     param([switch]$StorageFailed, [switch]$CommitFailed, [switch]$InvalidLink, [switch]$RenewalFailed)
 
-    $record = @{ id = 'file-1'; azureStorageUriRequestPending = $true }
-    if ($StorageFailed)     { $record = @{ id = 'file-1'; azureStorageUriRequestFailed = $true } }
-    if ($CommitFailed)      { $record = @{ id = 'file-1'; commitFileRequestFailed = $true } }
-    if ($InvalidLink)       { $record = @{ id = 'file-1'; commitFileInvalidLink = $true } }
-    if ($RenewalFailed)     { $record = @{ id = 'file-1'; azureStorageUriRenewalFailed = $true } }
+    # Real uploadState values (mobileAppContentFileUploadState). -InvalidLink keeps its name for the
+    # existing cases but is the service's generic 'error' state: there is no 'commitFileInvalidLink'.
+    $record = @{ id = 'file-1'; uploadState = 'azureStorageUriRequestPending' }
+    if ($StorageFailed)     { $record = @{ id = 'file-1'; uploadState = 'azureStorageUriRequestFailed' } }
+    if ($CommitFailed)      { $record = @{ id = 'file-1'; uploadState = 'commitFileFailed' } }
+    if ($InvalidLink)       { $record = @{ id = 'file-1'; uploadState = 'error' } }
+    if ($RenewalFailed)     { $record = @{ id = 'file-1'; uploadState = 'azureStorageUriRenewalFailed' } }
     return (New-PDMockJsonResponse -Json ($record | ConvertTo-Json -Compress))
 }
 
@@ -2605,19 +2656,18 @@ function New-PDM4FileReady {
     if ($Expired) { $sas = 'https://pdintuneweb.blob.core.windows.net/content/IntunePackage.intunewin?sv=1&sr=b&se=2020-01-01T00:00:00Z&sig=sig-original' }
 
     return (New-PDMockJsonResponse -Json (@{
-        id                            = 'file-1'
-        azureStorageUriRequestSuccess = $true
-        azureStorageUri               = $sas
+        id              = 'file-1'
+        uploadState     = 'azureStorageUriRequestSuccess'
+        azureStorageUri = $sas
     } | ConvertTo-Json -Compress))
 }
 
 function New-PDM4FileCommitPending {
     # The storage URI is ready, the commit has not been confirmed yet.
     return (New-PDMockJsonResponse -Json (@{
-        id                            = 'file-1'
-        azureStorageUriRequestSuccess = $true
-        azureStorageUri               = 'https://pdintuneweb.blob.core.windows.net/content/IntunePackage.intunewin?sv=1&se=2030-01-01T00:00:00Z&sig=x'
-        commitFileRequestPending      = $true
+        id              = 'file-1'
+        uploadState     = 'commitFilePending'
+        azureStorageUri = 'https://pdintuneweb.blob.core.windows.net/content/IntunePackage.intunewin?sv=1&se=2030-01-01T00:00:00Z&sig=x'
     } | ConvertTo-Json -Compress))
 }
 
@@ -3130,6 +3180,20 @@ Add-TestCase 'U06c' 'An ambiguous reconciliation stays Unknown' {
     Assert-Equal 1 ([int]$script:M4.CreateCount) 'one create POST, no repeats'
 
     Clear-PDMockGraph
+}
+
+Add-TestCase 'U07d' 'a flags value read back in a different order is the same setting' {
+    # Live finding 2026-10-12: submitted 'x64,x86', Intune reported 'x86,x64', and a correct
+    # upload was rolled back as a mismatch.
+    $expected = [ordered]@{
+        'Architectures' = @{ Path = 'applicableArchitectures'; Value = 'x64,x86'; Secret = $false; Set = $true }
+    }
+    $same = @(Compare-PDIntuneAppReadBack -Expected $expected -App ([pscustomobject]@{ applicableArchitectures = 'x86,x64' }))
+    Assert-Equal 0 $same.Count 'reordered flags agree'
+    $diff = @(Compare-PDIntuneAppReadBack -Expected $expected -App ([pscustomobject]@{ applicableArchitectures = 'x86' }))
+    Assert-Equal 1 $diff.Count 'a missing flag is still a mismatch'
+    $plain = [ordered]@{ 'Publisher' = @{ Path = 'publisher'; Value = 'x64,x86'; Secret = $false } }
+    Assert-Equal 1 @(Compare-PDIntuneAppReadBack -Expected $plain -App ([pscustomobject]@{ publisher = 'x86,x64' })).Count 'ordinary text is not compared as a set'
 }
 
 Add-TestCase 'U07a' 'An assignment read-back difference is never reported as success' {
@@ -3771,11 +3835,11 @@ Add-TestCase 'M5-02' 'the provisioning menu offers exactly the spec 7.2 options 
     $shown = [string](Get-PDM5SetupFunction -Name 'Show-GraphUploadMenu').Extent.Text
 
     foreach ($option in @(
-            '1 - Enterprise Application - Setup/Config (prerequisite for API uploads)',
-            '2 - Enterprise Application - Test config',
-            '3 - Enterprise Application - Rotate local PC secret',
-            '4 - Enterprise Application - Remove local PC secret',
-            '5 - MAA Exclusions - Setup/Config (not prerequisite, useful if your tenant has MAA enabled)',
+            '1 - Azure App Registration - Setup/Config (prerequisite for API uploads)',
+            '2 - Azure App Registration - Test config',
+            '3 - Azure App Registration - Rotate local PC secret',
+            '4 - Azure App Registration - Remove local PC secret',
+            '5 - MAA Exclusions - Setup/Config manually (not prerequisite, useful if your tenant has MAA enabled)',
             '0 - Return')) {
         Assert-True ($shown -like "*$option*") "the menu must show '$option'"
     }
@@ -4574,6 +4638,32 @@ Add-TestCase 'D07e' 'Lookup returns exactly one object when winget is absent or 
     Assert-Equal 1 $hostile.Count 'one object'
     Assert-Equal 'NotFound' $hostile[0].Status 'invalid id is refused'
     Assert-Like '*valid WinGet ID*' $hostile[0].Message 'and says why'
+}
+
+Add-TestCase 'I05' 'semicolon-separated groups reach the uploader as separate names' {
+    # Regression (first live printer upload, 2026-10-12): "IT PCs; Techs" arrived as the single name
+    # "IT PCs Techs", because Read-IntuneGroupList returned a wrapped array that the caller wrapped
+    # again. Exercise the real prompt function and the caller's exact conversion.
+    $function = Get-PDM5SetupFunction -Name 'Read-IntuneGroupList'
+    $probe = & {
+        function Write-Log { param($Message, $Level) }
+        function Read-Host { param($Prompt) 'IT PCs; Techs ;; ' }
+        . ([scriptblock]::Create($function.Extent.Text))
+        [string[]]$groups = @(Read-IntuneGroupList -Intent 'Available')
+        ,$groups
+    }
+    Assert-Equal 2 @($probe).Count 'two groups, not one joined name'
+    Assert-Equal 'IT PCs' ([string]@($probe)[0]) 'first group trimmed'
+    Assert-Equal 'Techs' ([string]@($probe)[1]) 'second group trimmed, empty pieces dropped'
+
+    $blank = & {
+        function Write-Log { param($Message, $Level) }
+        function Read-Host { param($Prompt) '' }
+        . ([scriptblock]::Create($function.Extent.Text))
+        [string[]]$groups = @(Read-IntuneGroupList -Intent 'Required')
+        ,$groups
+    }
+    Assert-Equal 0 @($blank).Count 'a blank answer is no groups, not one empty name'
 }
 
 # ---------------------------------------------------------------------------

@@ -758,7 +758,7 @@ function Get-PDIntuneAppReadBackExpectation {
         @{ Label = 'Setup file path';            Path = 'setupFilePath';           Value = $Payload['setupFilePath'] }
         @{ Label = 'Install command';            Path = 'installCommandLine';      Value = $Payload['installCommandLine']; Secret = $true }
         @{ Label = 'Uninstall command';          Path = 'uninstallCommandLine';    Value = $Payload['uninstallCommandLine']; Secret = $true }
-        @{ Label = 'Architectures';              Path = 'applicableArchitectures'; Value = $Payload['applicableArchitectures'] }
+        @{ Label = 'Architectures';              Path = 'applicableArchitectures'; Value = $Payload['applicableArchitectures']; Set = $true }
         @{ Label = 'Allow available uninstall';  Path = 'allowAvailableUninstall'; Value = [bool]$Payload['allowAvailableUninstall'] }
         @{ Label = 'Install context';            Path = 'runAsAccount';            Value = $(if ($null -ne $experience) { $experience['runAsAccount'] } else { $null }) }
         @{ Label = 'Install timeout (minutes)';  Path = 'maxRunTimeInMinutes';     Value = $(if ($null -ne $experience) { [long]$experience['maxRunTimeInMinutes'] } else { $null }) }
@@ -781,6 +781,7 @@ function Get-PDIntuneAppReadBackExpectation {
             Path   = [string]$field['Path']
             Value  = $value
             Secret = [bool]$field['Secret']
+            Set    = [bool]$field['Set']
         }
     }
 
@@ -1200,7 +1201,10 @@ function Invoke-PDIntuneUpload {
         $runTempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('PowerDeploy-IntuneUpload-' + [guid]::NewGuid().ToString('N'))
     }
 
-    $tempWasOurs   = $false
+    # Ownership is decided BEFORE preflight: if preflight throws (a mistyped group, a refused
+    # lookup) it never returns TempDirectoryOwned, and every failed dry run used to leave its
+    # extracted payload behind in %TEMP% (found during the first live runs, 2026-10-12).
+    $tempWasOurs   = -not (Test-Path -LiteralPath $runTempDirectory)
     $preflight     = $null
     $failureStage  = 'Preflight'
     $cleanupStatus = 'NotNeeded'
@@ -1227,7 +1231,7 @@ function Invoke-PDIntuneUpload {
             -NoRollback:$NoRollback `
             -TempDirectory $runTempDirectory
 
-        if ($preflight.ContainsKey('TempDirectoryOwned')) { $tempWasOurs = [bool]$preflight.TempDirectoryOwned }
+        if ($preflight.ContainsKey('TempDirectoryOwned')) { $tempWasOurs = ($tempWasOurs -or [bool]$preflight.TempDirectoryOwned) }
 
         if ($DryRun) {
             Write-PDUploadLog -Message 'Dry run finished; zero mutation calls were issued.' -Level 'DRYRUN'

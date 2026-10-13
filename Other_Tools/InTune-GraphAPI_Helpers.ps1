@@ -1024,9 +1024,12 @@ function Get-PDGraphNormalizedResponse {
     $body         = ''
     $transportMsg = $info.Message
 
-    # PowerShell 7: HttpResponseException carries the HttpResponseMessage.
+    # PowerShell 7: HttpResponseException carries the HttpResponseMessage. A 5.1 WebException ALSO
+    # has a Response property, so it must be excluded here: taking this branch on 5.1 read the
+    # status but took the body from ErrorDetails (empty for real Graph errors), and the stream read
+    # below never ran - every live 5.1 refusal lost Graph's reason (first live run, 2026-10-12).
     try {
-        if ($null -ne $inner -and $inner.PSObject.Properties['Response'] -and ($null -ne $inner.Response)) {
+        if ($null -ne $inner -and -not ($inner -is [System.Net.WebException]) -and $inner.PSObject.Properties['Response'] -and ($null -ne $inner.Response)) {
             $responseMessage = $inner.Response
 
             if ($responseMessage.PSObject.Properties['StatusCode']) {
@@ -1062,6 +1065,8 @@ function Get-PDGraphNormalizedResponse {
 
                 try {
                     $stream = $webResponse.GetResponseStream()
+                    # Rewind when possible, so an earlier reader cannot leave this one at the end.
+                    if ($stream.CanSeek) { $stream.Position = 0 }
                     $reader = New-Object System.IO.StreamReader($stream)
                     $body   = $reader.ReadToEnd()
                     $reader.Close()
@@ -1127,6 +1132,11 @@ function Invoke-PDGraphTransport {
             return (Get-PDGraphNormalizedResponse -ErrorRecord $_)
         }
     }
+
+    # Windows PowerShell 5.1 draws a progress bar for every Invoke-WebRequest (the flashing box
+    # seen during the first live upload), which also slows large transfers badly. Local to this
+    # function, so the caller's preference is untouched.
+    $ProgressPreference = 'SilentlyContinue'
 
     $params = @{
         Uri                        = $Request.Uri
@@ -1647,7 +1657,8 @@ function Get-PDGraphCollection {
         [Parameter(Mandatory = $true)][string]$Path,
         [AllowNull()][object]$AuthContext,
         [string]$Stage,
-        [int]$MaxPages = 200
+        [int]$MaxPages = 200,
+        [string]$Description = 'collection page'
     )
 
     $values  = @()
@@ -1666,7 +1677,7 @@ function Get-PDGraphCollection {
             }
         }
 
-        $page = Invoke-PDGraphRequest -Method Get -Uri $target -AuthContext $AuthContext -RetryMode 'Read' -Stage $Stage -Description 'collection page'
+        $page = Invoke-PDGraphRequest -Method Get -Uri $target -AuthContext $AuthContext -RetryMode 'Read' -Stage $Stage -Description $Description
 
         if ($null -eq $page) { break }
 
@@ -2542,7 +2553,7 @@ function Resolve-PDGraphGroup {
     $filter = "displayName eq " + (ConvertTo-PDODataStringLiteral -Value $term)
     $path   = New-PDGraphQueryPath -Path $groupsPath -Query @{ '$filter' = $filter; '$select' = $select }
 
-    $items  = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage
+    $items  = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage -Description ('group lookup for ''{0}''' -f $term)
 
     $matches = @()
     foreach ($item in (Get-PDGraphItems -Payload $items)) {
@@ -2639,13 +2650,23 @@ function Find-PDIntuneDuplicateApps {
     $term = Get-PDGraphTrimmedText -Value $DisplayName
     if ([string]::IsNullOrWhiteSpace($term)) { return @() }
 
-    $filter = 'displayName eq ' + (ConvertTo-PDODataStringLiteral -Value $term)
-    $path   = New-PDGraphQueryPath -Path ([string]$script:PDGraph.MobileAppsPath) -Query @{
-        '$filter' = $filter
-        '$select' = 'id,displayName,publishingState'
+    # Intune's displayName eq filter never matches a name containing [ or ] (measured live
+    # 2026-10-12: an existing "...[OLD - f9068c8]" app was not found), and PowerDeploy's
+    # development-mode names always carry "[MODE] [VER: ...]". For those, ask for everything that
+    # starts with the part before the first bracket; the exact comparison below does the matching.
+    $filter  = 'displayName eq ' + (ConvertTo-PDODataStringLiteral -Value $term)
+    $bracket = $term.IndexOfAny([char[]]@('[', ']'))
+    if ($bracket -ge 0) {
+        $prefix = $term.Substring(0, $bracket)
+        $filter = $null
+        if ($prefix.Trim().Length -gt 0) { $filter = 'startswith(displayName,' + (ConvertTo-PDODataStringLiteral -Value $prefix) + ')' }
     }
 
-    $items = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage
+    $query = @{ '$select' = 'id,displayName,publishingState' }
+    if ($null -ne $filter) { $query['$filter'] = $filter }
+    $path = New-PDGraphQueryPath -Path ([string]$script:PDGraph.MobileAppsPath) -Query $query
+
+    $items = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage -Description 'duplicate app name check'
 
     $duplicates = @()
     foreach ($item in (Get-PDGraphItems -Payload $items)) {
@@ -2689,10 +2710,10 @@ function Find-PDIntuneCategory {
     $filter = 'displayName eq ' + (ConvertTo-PDODataStringLiteral -Value $term)
     $path   = New-PDGraphQueryPath -Path ([string]$script:PDGraph.AppCategoriesPath) -Query @{
         '$filter' = $filter
-        '$select' = 'id,displayName,isBuiltIn'
+        '$select' = 'id,displayName'
     }
 
-    $items = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage
+    $items = Get-PDGraphCollection -Path $path -AuthContext $AuthContext -Stage $Stage -Description 'category lookup'
 
     $found = @()
     foreach ($item in (Get-PDGraphItems -Payload $items)) {
@@ -3147,9 +3168,12 @@ function New-PDIntuneAssignmentPayload {
         Stop-PDGraphError -Message 'There are no groups to assign, so the assign request must not be sent at all.' -Stage $Stage
     }
 
+    # The assign action's body is exactly { "mobileAppAssignments": [ ... ] }. A root '@odata.type'
+    # (there is no mobileAppAssignments type) is refused with "ModelValidationFailure: The
+    # annotation 'odata.type' was found ... not expected at the current position" (first live
+    # upload, 2026-10-12). Type annotations belong only on each assignment and its target.
     return @{
-        '@odata.type' = '#microsoft.graph.mobileAppAssignments'
-        assignments   = $assignments
+        mobileAppAssignments = $assignments
     }
 }
 
@@ -3175,13 +3199,15 @@ function New-PDIntuneCategoryRefPayload {
 function Get-PDIntuneContentFileState {
     <#
         .SYNOPSIS
-        Reads the service's own boolean state flags off a mobileAppContentFile record.
+        Reads the service's uploadState off a mobileAppContentFile record.
 
         .DESCRIPTION
-        Every state is taken from the service, and anything not recognized is 'Pending' -
-        bounded by the caller's polling deadline - so a service change can never be
-        mistaken for success.
-
+        Graph reports progress in ONE string property, uploadState (mobileAppContentFileUploadState:
+        azureStorageUriRequestSuccess, azureStorageUriRenewalSuccess, commitFileSuccess, ...). An
+        earlier version looked for boolean properties named after those values, which do not exist,
+        so a real upload never left "Pending" (first live upload, 2026-10-12). Anything not
+        recognized is 'Pending' - bounded by the caller's polling deadline - so a service change can
+        never be mistaken for success.
         .OUTPUTS
         'Success' | 'Pending' | 'Failed' | 'Absent'
     #>
@@ -3192,31 +3218,28 @@ function Get-PDIntuneContentFileState {
 
     if ($null -eq $File) { return 'Absent' }
 
-    $flags = @{
+    $states = @{
         StorageUri  = @{
             Success = @('azureStorageUriRequestSuccess', 'azureStorageUriRenewalSuccess')
-            Failed  = @('azureStorageUriRequestFailed', 'azureStorageUriRequestTimedOut', 'azureStorageUriRenewalFailed', 'azureStorageUriRenewalTimedOut')
+            Failed  = @('azureStorageUriRequestFailed', 'azureStorageUriRequestTimedOut', 'azureStorageUriRenewalFailed', 'azureStorageUriRenewalTimedOut', 'error')
         }
         RenewUpload = @{
             Success = @('azureStorageUriRenewalSuccess')
-            Failed  = @('azureStorageUriRenewalFailed', 'azureStorageUriRenewalTimedOut')
+            Failed  = @('azureStorageUriRenewalFailed', 'azureStorageUriRenewalTimedOut', 'error')
         }
         Commit      = @{
-            Success = @('commitFileRequestSuccess')
-            Failed  = @('commitFileRequestFailed', 'commitFileRequestTimedOut', 'commitFileInvalidLink')
+            Success = @('commitFileSuccess')
+            Failed  = @('commitFileFailed', 'commitFileTimedOut', 'error')
         }
     }
 
-    foreach ($name in @($flags[$Phase].Failed)) {
-        if ([bool](Get-PDGraphPropertyValue -Object $File -Name $name)) { return 'Failed' }
-    }
-    foreach ($name in @($flags[$Phase].Success)) {
-        if ([bool](Get-PDGraphPropertyValue -Object $File -Name $name)) { return 'Success' }
-    }
+    $state = ([string](Get-PDGraphPropertyValue -Object $File -Name 'uploadState')).Trim()
+    if ([string]::IsNullOrWhiteSpace($state)) { return 'Pending' }
 
+    foreach ($name in @($states[$Phase].Failed))  { if ($state -ieq $name) { return 'Failed' } }
+    foreach ($name in @($states[$Phase].Success)) { if ($state -ieq $name) { return 'Success' } }
     return 'Pending'
 }
-
 function Wait-PDGraphCondition {
     <#
         .SYNOPSIS
@@ -3508,6 +3531,7 @@ function Compare-PDIntuneAppReadBack {
         $path   = [string]$entry['Path']
         $want   = $entry['Value']
         $secret = [bool]$entry['Secret']
+        $isSet  = [bool]$entry['Set']
 
         if ([string]::IsNullOrWhiteSpace($path)) { $path = $label }
         if ($null -eq $want) { continue }
@@ -3518,7 +3542,12 @@ function Compare-PDIntuneAppReadBack {
         $normalizedGot  = $got
 
         $isComparable = $true
-        if ($want -is [bool]) {
+        if ($isSet) {
+            # A flags value ("x64,x86"): Intune hands it back in its own order ("x86,x64"), which
+            # is the same setting (first live upload, 2026-10-12). Compared as a set.
+            $normalizedWant = ((@(([string]$want) -split ',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ } | Sort-Object -Unique) -join ',')
+            $normalizedGot  = ((@(([string]$got)  -split ',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ } | Sort-Object -Unique) -join ',')
+        } elseif ($want -is [bool]) {
             $normalizedWant = [bool]$want
             try { $normalizedGot = [bool]$got } catch { $isComparable = $false }
         } elseif ($want -is [long]) {
@@ -4772,15 +4801,18 @@ function Ensure-PDAppRoleAssignments {
             $info = Get-PDGraphErrorInfo -ErrorRecord $_
             if ([int]$info.Status -eq 0) {
                 $unconfirmed += $roleName
-                $failed += ("{0}: the grant request did not come back and was not repeated, so the role may or may not be granted. Check the enterprise application in Entra before running this again." -f $roleName)
+                $failed += ("{0}: the grant request did not come back and was not repeated, so the role may or may not be granted. Check API permissions on the Azure App Registration in Entra before running this again." -f $roleName)
             } else {
                 $failed += ("{0}: {1}" -f $roleName, [string]$info.Message)
             }
         }
     }
 
-    $message = "Granted roles: {0}." -f (@($granted) -join ', ')
-    if (@($already).Count -gt 0)   { $message += " Already granted: {0}." -f (@($already) -join ', ') }
+    # Only name the lists that have something in them ("Granted roles: ." read as a glitch).
+    $parts = @()
+    if (@($granted).Count -gt 0)   { $parts += ("Granted: {0}." -f (@($granted) -join ', ')) }
+    if (@($already).Count -gt 0)   { $parts += ("Already granted: {0}." -f (@($already) -join ', ')) }
+    $message = ($parts -join ' ')
     if ($DryRun)                   { $message = 'Dry run: no role was granted. ' + $message }
     if (@($failed).Count -gt 0)    { $message += (' Not confirmed: ' + (@($failed) -join ' | ')) }
     if (@($granted).Count -gt 0)   { $message += ' A newly granted role can take a minute to appear in the app-only token.' }
@@ -4905,7 +4937,7 @@ function Add-PDAppSecret {
         $info = Get-PDGraphErrorInfo -ErrorRecord $_
         if ([int]$info.Status -eq 0) {
             return @{ Success = $false; Outcome = 'Unknown'; LifetimeDays = $days; Label = $label; Secret = $null; ExpiresOn = $null; Warnings = $warnings
-                      Message = ("The secret request did not come back, so it is not known whether a secret was created. It was not repeated. List the application secrets in Entra and use 'Enterprise Application - Remove local PC secret' if one was left behind. ({0})" -f [string]$info.Message) }
+                      Message = ("The secret request did not come back, so it is not known whether a secret was created. It was not repeated. List the application secrets in Entra and use 'Azure App Registration - Remove local PC secret' if one was left behind. ({0})" -f [string]$info.Message) }
         }
         return @{ Success = $false; Outcome = 'Failed'; LifetimeDays = $days; Label = $label; Secret = $null; ExpiresOn = $null; Warnings = $warnings
                   Message = $info.Message }
@@ -5518,7 +5550,7 @@ function Get-PDGraphCredentialMetadata {
     } catch {
         $reason = ([string]$_.Exception.Message)
         if ($reason -match '(?i)decrypt|cryptograph|key|padding|mac|bad data|not valid|rmtp|protected') {
-            Stop-PDGraphError -Stage 'Credential' -Message 'The stored credential could not be decrypted by this Windows account, so it cannot be rotated. Re-enter it ('Enterprise Application - Setup/Config', Manual) or remove it ('Enterprise Application - Remove local PC secret').'
+            Stop-PDGraphError -Stage 'Credential' -Message 'The stored credential could not be decrypted by this Windows account, so it cannot be rotated. Re-enter it ('Azure App Registration - Setup/Config', Manual) or remove it ('Azure App Registration - Remove local PC secret').'
         }
         Stop-PDGraphError -Stage 'Credential' -Message ("The stored credential file could not be read and may be corrupt, so it cannot be rotated. ({0})" -f $reason)
     }
@@ -5633,7 +5665,7 @@ function Start-PDGraphSecretRotation {
 
     if (-not $looked.Found) {
         $answer.Reason  = 'NoApplication'
-        $answer.Message = ("The stored credential's application could not be found in the tenant you signed in to ({0}). Nothing was changed; re-enter the credential instead ('Enterprise Application - Setup/Config', Manual)." -f $looked.Message)
+        $answer.Message = ("The stored credential's application could not be found in the tenant you signed in to ({0}). Nothing was changed; re-enter the credential instead ('Azure App Registration - Setup/Config', Manual)." -f $looked.Message)
         return $answer
     }
 
@@ -6067,9 +6099,9 @@ function Start-PDGraphUploadProvisioning {
 
     $expiryText = $saved.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
 
-    $answer.Warnings += 'The Multi-Admin Approval exclusion is tied to the application, so it has to exist before the first upload; this same menu shows how to ask for it and makes no Graph call for it.'
-    $answer.Message = ("'{0}' is ready: application {1}, service principal {2}, roles granted, secret saved for this Windows account (key id {3}, expires {4}). Ask for the Multi-Admin Approval exclusion from this menu before publishing." -f `
-        [string]$script:PDGraph.AppDisplayName, [string]$application.ApplicationId, [string]$principal.ServicePrincipalId, [string]$created.KeyId, $expiryText)
+    # The ids are already in the step lines above; the summary only says what the operator needs.
+    # (Setup prints the Multi-Admin Approval next step itself, so it is not repeated here.)
+    $answer.Message = ("'{0}' is ready. This PC's secret is saved and expires {1}. If your tenant has Multi-Admin Approval enabled, set up its exclusion next (MAA Exclusions - Setup/Config)." -f [string]$script:PDGraph.AppDisplayName, $expiryText)
 
     return (& $answerOnly 'Provisioned' $answer.Message $true)
 }
@@ -6149,7 +6181,7 @@ function Test-PDGraphUploadCandidateCredential {
 
     if (@($missing).Count -gt 0) {
         return @{ Valid = $false; Reason = 'MissingRoles'; Credential = $credential; Roles = @($held); MissingRoles = @($missing); Warnings = $warnings
-                  Message = ("Those credentials work but the application is not granted {0}. Grant the missing application role(s) in Entra ('Enterprise Application - Setup/Config', Automatic, does it), then save again. Nothing was replaced." -f (($missing | ForEach-Object { "'$_'" }) -join ', ')) }
+                  Message = ("Those credentials work but the application is not granted {0}. Grant the missing application role(s) in Entra ('Azure App Registration - Setup/Config', Automatic, does it), then save again. Nothing was replaced." -f (($missing | ForEach-Object { "'$_'" }) -join ', ')) }
     }
 
     if (@($held).Count -eq 0) {
@@ -6230,7 +6262,7 @@ function Test-PDGraphUploadConnection {
         }
     }
 
-    $warnings += 'This test only reads. It does not prove the application is excluded from Multi-Admin Approval, which blocks writes; the first real upload is what proves that.'
+    $warnings += 'This test only reads, so it cannot tell whether the Multi-Admin Approval (MAA) exclusion is in place. Your first automatic upload will.'
 
     $readNote = 'no Intune read was requested'
     if (-not $SkipIntuneRead) { $readNote = 'the small Intune read succeeded' }
@@ -6283,17 +6315,17 @@ function Get-PDGraphUploadMaaGuidance {
     $steps = @(
         'Intune -> Tenant administration -> Multi Admin Approval -> Access policies',
         '-> Apps policy -> Exclusions -> Add enterprise applications',
-        ('-> select {0} -> submit justification' -f $name),
+        ('-> select {0} (Intune lists app registrations here as enterprise applications) -> submit a justification' -f $name),
         '-> another authorized administrator approves',
         '-> requester selects Complete'
     )
 
     $notes = @(
-        'This menu only prints these steps. It performs no Microsoft Graph reads or writes about Multi-Admin Approval.',
-        'An exclusion covers the application-only (app) calls for that policy. Calls made as a signed-in user still need approval.',
-        'The exclusion stays tied to the application when its secret rotates, so rotating here does not undo it.',
-        'If the tenant cannot create the exclusion, keep using guided manual publishing: protected API writes are blocked, and that is reported as a blocked write, not as a broken installer.',
-        'A successful connection test does NOT prove the exclusion exists - it only reads. The first publish is what proves it.'
+        'Why: with Multi-Admin Approval on, every change to Intune apps waits for a second admin to approve it. The exclusion lets uploads made by the PowerDeploy Azure App Registration go through without that wait.',
+        'It only covers the app-registration (application-only) uploads PowerDeploy makes. Changes you make yourself in the Intune portal still need approval as before.',
+        'You only do this once. Rotating this PC''s secret does not undo it, because the exclusion belongs to the app registration, not the secret.',
+        'Without the exclusion, Intune refuses automatic uploads. The wizard tells you that and switches to the guided manual setup.',
+        '"Test config" cannot tell whether the exclusion is in place (it only reads). Your first automatic upload will.'
     )
 
     return @{
@@ -6301,6 +6333,6 @@ function Get-PDGraphUploadMaaGuidance {
         ClientId       = $id
         Steps          = @($steps)
         Notes          = @($notes)
-        Message        = ('Exclude "{0}" (client id {1}) from the Multi-Admin Approval apps policy.' -f $name, $id)
+        Message        = ('Add "{0}" to the exclusions of your Multi-Admin Approval apps policy.' -f $name)
     }
 }

@@ -4201,11 +4201,11 @@ Function Show-GraphUploadMenu {
     Write-Log "This menu manages the credential that PowerDeploy uses to publish apps through Microsoft Graph."
     Write-Log "It is stored only on this Windows account, protected by Windows DPAPI. It is never stored in the fleet registry, in this repo, or in any log."
     Write-Log ""
-    Write-Log "1 - Enterprise Application - Setup/Config (prerequisite for API uploads)"
-    Write-Log "2 - Enterprise Application - Test config"
-    Write-Log "3 - Enterprise Application - Rotate local PC secret"
-    Write-Log "4 - Enterprise Application - Remove local PC secret"
-    Write-Log "5 - MAA Exclusions - Setup/Config (not prerequisite, useful if your tenant has MAA enabled)"
+    Write-Log "1 - Azure App Registration - Setup/Config (prerequisite for API uploads)"
+    Write-Log "2 - Azure App Registration - Test config"
+    Write-Log "3 - Azure App Registration - Rotate local PC secret"
+    Write-Log "4 - Azure App Registration - Remove local PC secret"
+    Write-Log "5 - MAA Exclusions - Setup/Config manually (not prerequisite, useful if your tenant has MAA enabled)"
     Write-Log "0 - Return"
     Write-Log ""
 
@@ -4354,7 +4354,7 @@ Function Connect-GraphUploadAdminSession {
     Write-Log "Opening sign in window to $Purpose." 'WARNING'
     Write-Log ""
     Write-Log "About the permissions requested:"
-    Write-Log "  - Read and write applications: finds or creates the PowerDeploy Enterprise Application and adds or removes its secrets."
+    Write-Log "  - Read and write applications: finds or creates the PowerDeploy Azure App Registration and adds or removes its secrets."
     if ($IncludeConsent) {
         Write-Log "  - Manage app permission grants and app role assignments: gives that application its two permissions (manage Intune apps, read groups)."
     }
@@ -4453,7 +4453,7 @@ Function Invoke-GraphUploadProvisionApplication {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "ENTERPRISE APPLICATION - SETUP/CONFIG (AUTOMATIC)"
+    Write-Log "AZURE APP REGISTRATION - SETUP/CONFIG (AUTOMATIC)"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4462,19 +4462,19 @@ Function Invoke-GraphUploadProvisionApplication {
     if (-not $Prerequisite.Available) {
         Write-Log $Prerequisite.Message 'WARNING'
         Write-Log ""
-        Write-Log "The Manual choice under Enterprise Application - Setup/Config works without it, and guided manual publishing is always available." 'WARNING'
+        Write-Log "The Manual choice under Azure App Registration - Setup/Config works without it, and guided manual publishing is always available." 'WARNING'
         return
     }
 
     $LifetimeDays = Read-GraphUploadSecretLifetime -Default ([int]$PDGraph.DefaultSecretLifetimeDays)
 
-    $Session = Connect-GraphUploadAdminSession -IncludeConsent -Purpose 'automatically create or configure the Enterprise Application'
+    $Session = Connect-GraphUploadAdminSession -IncludeConsent -Purpose 'automatically create or configure the Azure App Registration'
     if ($null -eq $Session) { return }
 
     try {
 
         Write-Log ""
-        Write-Log "Checking whether the PowerDeploy Enterprise Application already exists in your tenant..." 'INFO2'
+        Write-Log "Checking whether the PowerDeploy Azure App Registration already exists in your tenant..." 'INFO2'
 
         $Found         = Find-PDEntraUploadApp
         $ApplicationId = ''
@@ -4482,7 +4482,7 @@ Function Invoke-GraphUploadProvisionApplication {
 
         # Say what was found before saying what happens next.
         if (-not $Found.Found) {
-            Write-Log "     Not found: no Enterprise Application named '$AppName' exists yet." 'INFO2'
+            Write-Log "     Not found: no Azure App Registration named '$AppName' exists yet." 'INFO2'
         } elseif (-not $Found.Multiple) {
             $Existing = @($Found.Apps)[0]
             Write-Log "     Found: '$AppName' already exists (id $($Existing.ApplicationId), created $($Existing.Created))." 'INFO2'
@@ -4491,7 +4491,7 @@ Function Invoke-GraphUploadProvisionApplication {
         if ($Found.Multiple) {
 
             Write-Log ""
-            Write-Log "More than one Enterprise Application is named '$AppName'. Pick the one PowerDeploy should use:" 'WARNING'
+            Write-Log "More than one Azure App Registration is named '$AppName'. Pick the one PowerDeploy should use:" 'WARNING'
 
             foreach ($Candidate in @($Found.Apps)) {
                 Write-Log ("     {0}   (created {1})" -f [string]$Candidate.ApplicationId, [string]$Candidate.Created) 'INFO2'
@@ -4522,9 +4522,9 @@ Function Invoke-GraphUploadProvisionApplication {
         Write-Log ""
         Write-Log "PowerDeploy will now:" 'WARNING'
         if ($Found.Found) {
-            Write-Log "     1 - Use the existing Enterprise Application '$AppName'"
+            Write-Log "     1 - Use the existing Azure App Registration '$AppName'"
         } else {
-            Write-Log "     1 - Create an Enterprise Application named '$AppName' (none exists yet)"
+            Write-Log "     1 - Create an Azure App Registration named '$AppName' (none exists yet)"
         }
         Write-Log "     2 - Make sure it has its two permissions: manage Intune apps, and read groups"
         Write-Log "     3 - Create a secret for this PC (valid $LifetimeDays days), test it, and save it encrypted for your Windows account"
@@ -4536,14 +4536,14 @@ Function Invoke-GraphUploadProvisionApplication {
         }
 
         Write-Log ""
-        Write-Log "Setting up the Enterprise Application. A brand-new secret can take a few minutes to start working; Setup waits for it (up to 5 minutes)..." 'INFO2'
+        Write-Log "Setting up the Azure App Registration. A brand-new secret can take a few minutes to start working; Setup waits for it (up to 5 minutes)..." 'INFO2'
 
         $Result = Start-PDGraphUploadProvisioning -Session $Session -ApplicationId $ApplicationId -SecretLifetimeDays $LifetimeDays
 
         Show-GraphUploadSteps -Steps $Result.Steps
 
         foreach ($Warning in @($Result.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     $Warning" 'WARNING' }
         }
 
         Write-Log ""
@@ -4551,8 +4551,7 @@ Function Invoke-GraphUploadProvisionApplication {
         if ($Result.Success) {
 
             Write-Log $Result.Message 'SUCCESS'
-            Write-Log ""
-            Write-Log "Next: if your tenant has Multi-Admin Approval enabled, use MAA Exclusions - Setup/Config. Publishing is then offered in the printer and app wizards." 'WARNING'
+            Write-Log "     Automatic publishing is now offered in the printer and app wizards." 'INFO2'
 
         } else {
 
@@ -4590,7 +4589,7 @@ Function Invoke-GraphUploadEnterCredential {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "ENTER EXISTING APPLICATION CREDENTIALS"
+    Write-Log "AZURE APP REGISTRATION - SETUP/CONFIG (MANUAL)"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
     Write-Log "Use this when the application already exists in your tenant and its secret was created somewhere"
@@ -4679,7 +4678,7 @@ Function Invoke-GraphUploadEnterCredential {
                         -SecretExpiresOn $ExpiresOn -SecretKeyId $SecretKeyId -AppDisplayName $DisplayName
 
         foreach ($Warning in @($Check.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     $Warning" 'WARNING' }
         }
 
         if (-not $Check.Valid) {
@@ -4696,7 +4695,7 @@ Function Invoke-GraphUploadEnterCredential {
         Write-Log ""
         Write-Log "Saved for this Windows account: $($Saved.Path)" 'SUCCESS'
         Write-Log "     Expires: $($Saved.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture))" 'INFO2'
-        Write-Log "     Enterprise Application - Test config re-tests this at any time; Rotate local PC secret replaces it." 'WARNING'
+        Write-Log "     Azure App Registration - Test config re-tests this at any time; Rotate local PC secret replaces it." 'WARNING'
 
     } Catch {
 
@@ -4713,7 +4712,7 @@ Function Invoke-GraphUploadTestConnection {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "TEST THE SAVED CONNECTION"
+    Write-Log "AZURE APP REGISTRATION - TEST CONFIG"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4740,13 +4739,13 @@ Function Invoke-GraphUploadTestConnection {
         }
 
         foreach ($Warning in @($Result.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     $Warning" 'WARNING' }
         }
 
     } Catch {
 
         Show-GraphUploadError $_
-        Write-Log "If no credential is stored yet, use Enterprise Application - Setup/Config first." 'WARNING'
+        Write-Log "If no credential is stored yet, use Azure App Registration - Setup/Config first." 'WARNING'
 
     }
 
@@ -4761,7 +4760,7 @@ Function Invoke-GraphUploadRotateSecret {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "ROTATE THIS WORKSTATION'S SECRET"
+    Write-Log "AZURE APP REGISTRATION - ROTATE LOCAL PC SECRET"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4775,7 +4774,7 @@ Function Invoke-GraphUploadRotateSecret {
     $Summary = Show-GraphUploadCredentialState
 
     if (-not $Summary.Stored) {
-        Write-Log "There is nothing to rotate yet. Use Enterprise Application - Setup/Config first." 'WARNING'
+        Write-Log "There is nothing to rotate yet. Use Azure App Registration - Setup/Config first." 'WARNING'
         return
     }
 
@@ -4801,7 +4800,7 @@ Function Invoke-GraphUploadRotateSecret {
         }
 
         foreach ($Warning in @($Result.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     $Warning" 'WARNING' }
         }
 
     } Catch {
@@ -4824,7 +4823,7 @@ Function Show-GraphUploadMaaInstructions {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "MULTI-ADMIN APPROVAL (MAA) EXCLUSION"
+    Write-Log "MAA EXCLUSIONS - SETUP/CONFIG MANUALLY"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4833,7 +4832,7 @@ Function Show-GraphUploadMaaInstructions {
     Write-Log $Guidance.Message 'WARNING'
     Write-Log "     Client ID: $($Guidance.ClientId)" 'INFO2'
     Write-Log ""
-    Write-Log "In the portal:" 'WARNING'
+    Write-Log "Do this in the Intune admin center (Setup cannot do it for you):" 'WARNING'
 
     foreach ($Step in @($Guidance.Steps)) {
         Write-Log "     $Step" 'INFO2'
@@ -4856,7 +4855,7 @@ Function Invoke-GraphUploadRemoveCredential {
 
     Write-Log ""
     Write-Log "-------------------------------------------------------------------------------------------"
-    Write-Log "REMOVE SAVED CREDENTIALS"
+    Write-Log "AZURE APP REGISTRATION - REMOVE LOCAL PC SECRET"
     Write-Log "-------------------------------------------------------------------------------------------"
     Write-Log ""
 
@@ -4880,7 +4879,7 @@ Function Invoke-GraphUploadRemoveCredential {
 
     if ($Revoke) {
 
-        $Session = Connect-GraphUploadAdminSession -Purpose "remove this PC's secret from the Enterprise Application"
+        $Session = Connect-GraphUploadAdminSession -Purpose "remove this PC's secret from the Azure App Registration"
         if ($null -eq $Session) { return }
 
     }
@@ -4898,7 +4897,7 @@ Function Invoke-GraphUploadRemoveCredential {
         }
 
         foreach ($Warning in @($Result.Warnings)) {
-            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     WARNING: $Warning" 'WARNING' }
+            if (-not [string]::IsNullOrWhiteSpace($Warning)) { Write-Log "     $Warning" 'WARNING' }
         }
 
         if ($Result.Removed) {
@@ -5095,9 +5094,10 @@ Function Read-IntuneGroupList {
     Write-Log ("Enter the {0} assignment groups, separated by ';' (exact group names or group object IDs). Leave blank for none." -f $Intent.ToUpperInvariant()) 'WARNING'
     $Raw = [string](Read-Host $Intent)
 
-    # Spec 5.2: split on semicolons, trim, discard empty pieces.
-    $Groups = @($Raw -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
-    return ,([string[]]$Groups)
+    # Spec 5.2: split on semicolons, trim, discard empty pieces. Returned as plain pipeline items:
+    # wrapping the array (return ,$x) and then @() at the caller made a one-item list holding the
+    # whole array, which [string[]] turned into "IT PCs Techs" - the separator vanished.
+    return @($Raw -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
 }
 
 Function Get-IntuneUploadFileHashes {
@@ -5229,13 +5229,6 @@ Function Invoke-InTuneAutoUpload {
             return $false
         }
 
-        # Step 6: groups, Required first.
-        Write-Log ""
-        $RequiredGroups  = @(Read-IntuneGroupList -Intent 'Required')
-        Write-Log ""
-        $AvailableGroups = @(Read-IntuneGroupList -Intent 'Available')
-        Write-Log ""
-
         $Common = @{
             IntuneWinPath           = [string]$Metadata.IntuneWinPath
             DisplayName             = [string]$Metadata.DisplayName
@@ -5254,7 +5247,20 @@ Function Invoke-InTuneAutoUpload {
 
         $AllowDuplicate = $false
 
+        $AskGroups = $true
+
         While ($true) {
+
+            # Step 6: groups, Required first. Asked again after a failed check, so a mistyped group
+            # name means retyping the list, not starting over or falling back to manual setup.
+            if ($AskGroups) {
+                Write-Log ""
+                [string[]]$RequiredGroups  = @(Read-IntuneGroupList -Intent 'Required')
+                Write-Log ""
+                [string[]]$AvailableGroups = @(Read-IntuneGroupList -Intent 'Available')
+                Write-Log ""
+                $AskGroups = $false
+            }
 
             # Step 7: dry run - reads only, zero writes.
             Write-Log "Checking the package, credential, groups, and category against the tenant (dry run, nothing is created)..."
@@ -5269,17 +5275,22 @@ Function Invoke-InTuneAutoUpload {
                 return $false
             }
 
-            Show-IntuneUploadReview -Review $Review
-
-            # Step 8.
+            # Step 8. A failed check shows only the problem: a half-filled review ("No assignments")
+            # would describe something that is not going to happen.
             if (-not $Review.Success) {
-                Write-Log "The check failed (stage: $($Review.Stage)):" 'ERROR'
+                Write-Log "The check failed, so nothing was created in Intune:" 'ERROR'
                 Show-GraphUploadError -Failure $Review.Message
                 Write-Log ""
-                Write-Log "Nothing was created in Intune. Continuing with the guided manual setup." 'WARNING'
+                if (Read-GraphUploadYesNo -Question 'Re-enter the assignment groups and check again?' -Default $true -Note 'Answer n to continue with the guided manual setup instead.') {
+                    $AskGroups = $true
+                    continue
+                }
+                Write-Log "Continuing with the guided manual setup." 'WARNING'
                 Pause
                 return $false
             }
+
+            Show-IntuneUploadReview -Review $Review
 
             # Step 9: a duplicate name needs its own explicit yes.
             $AllowDuplicate = $false
@@ -5413,9 +5424,9 @@ Function Graph_API_Upload--InTune-Setup {
         if ($Choice -eq '1') {
 
             # Two ways to end up with a working credential on this PC: let Setup create/configure the
-            # Enterprise Application with an admin sign-in, or type in one that already exists.
+            # Azure App Registration with an admin sign-in, or type in one that already exists.
             Write-Log ""
-            Write-Log "How do you want to set up the Enterprise Application for this PC?" 'WARNING'
+            Write-Log "How do you want to set up the Azure App Registration for this PC?" 'WARNING'
             Write-Log ""
             Write-Log "     1 - Automatic: sign in as an admin, and Setup creates or reuses the application, grants its permissions, and makes and saves a secret for this PC (recommended)"
             Write-Log ""
