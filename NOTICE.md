@@ -52,7 +52,7 @@ This project is maintained by **Adrian Mandel** on behalf of the Santa Cruz Coun
 
 | | |
 |---|---|
-| **Repository** | <https://github.com/Adrian-Mandel/PowerDeploy> |
+| **Repository** | <https://github.com/Santa-Cruz-COE/PowerDeploy> |
 | **Maintainer** | [@Adrian-Mandel](https://github.com/Adrian-Mandel) |
 | **Organization** | [Santa Cruz County Office of Education](https://santacruzcoe.org) |
 
