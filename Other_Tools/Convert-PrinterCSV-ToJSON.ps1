@@ -1,4 +1,10 @@
 <#
+!!! UNTESTED - NOT VALIDATED END TO END (2026-10-14) !!!
+This print-server migration tool has not been tested end to end (export -> convert -> install).
+Review every output by hand before it goes anywhere near the live printer JSON or blob storage.
+Note: the printer installer now REFUSES duplicate PrinterName entries, so check the output for them.
+Tracking: GitHub issue 'Test print-server migration tools end to end'.
+
 
 INSTRUCTIONS:
 Companion to Export-PrinterServer-CSV.ps1.
@@ -30,6 +36,12 @@ param(
     [string]$CsvPath,
     [string]$OutputPath
 )
+
+Write-Host ''
+Write-Host '!!! UNTESTED TOOL: this print-server migration script has not been validated end to end.' -ForegroundColor Yellow
+Write-Host '    Review every output by hand before using it. Duplicate PrinterName entries will be rejected by the installer.' -ForegroundColor Yellow
+Write-Host ''
+
 
 $RepoRoot = (Split-Path $PSScriptRoot -Parent)
 $WorkingDirectory = (Split-Path $RepoRoot -Parent)

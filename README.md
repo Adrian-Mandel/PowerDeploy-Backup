@@ -38,7 +38,7 @@ It turns *"I need to deploy this app / this printer"* into a finished, reliable 
 
 Two ideas make that work:
 
-- **A catalog, not a pile of one-off packages.** Every app and printer is a single entry in a JSON manifest. Add an entry and a guided wizard builds the Intune Win32 package, the install/uninstall commands, and the detection script for you — after letting you test the install on a real machine first. (Printers and WinGet, MSI, EXE, and URL-download apps are supported by the wizard today; `Custom_Script` apps can be installed locally but not yet packaged — see [Packaging and managing your assets](#packaging-and-managing-your-assets).)
+- **A catalog, not a pile of one-off packages.** Every app and printer is a single entry in a JSON manifest. Add an entry and a guided wizard builds the Intune Win32 package, the install/uninstall commands, and the detection script for you — after letting you test the install on a real machine first — and can optionally create the app in Intune for you as well ([Publishing to Intune automatically](#publishing-to-intune-automatically-optional)). (Printers and WinGet, MSI, EXE, and URL-download apps are supported by the wizard today; `Custom_Script` apps can be installed locally but not yet packaged — see [Packaging and managing your assets](#packaging-and-managing-your-assets).)
 - **Payloads are pulled at run time, not shipped through Intune.** Intune carries only a small runner. The actual installers come from WinGet or your Azure Blob Storage, and the deployment scripts come from Git, at the moment the endpoint runs. That removes Intune's package-size ceiling, and changing how something deploys means editing a script or one line of JSON — never re-wrapping and re-uploading an app.
 
 It runs **both with and without the Company Portal**: the same definition is available as an assigned / self-service app in Intune *and* runnable on demand by a technician directly on the device.
@@ -53,6 +53,7 @@ Built for teams that have gone cloud-first and hit the walls — apps that fail 
 - [Printing: solving what Universal Print can't](#printing-solving-what-universal-print-cant)
   - [Printer manifest format](#printer-manifest-format)
 - [Packaging and managing your assets](#packaging-and-managing-your-assets)
+  - [Publishing to Intune automatically (optional)](#publishing-to-intune-automatically-optional)
 - [What you can do with it](#what-you-can-do-with-it)
 - [How it works (under the hood)](#how-it-works-under-the-hood)
   - [The runner pattern](#the-runner-pattern)
@@ -149,9 +150,9 @@ Most of the recurring cost of fleet deployment isn't the install itself — it's
 - optionally **test-installs it on the local machine first**, so you validate the configuration before you ship it;
 - builds the **`.intunewin` package** (wrapping the runner) for you — no manual `IntuneWinAppUtil` runs;
 - generates the **install command, uninstall command, and detection script**, with parameters Base64-encoded for clean Intune compatibility — no hand-writing detection logic or guessing silent-install switches;
-- prints exactly what to paste into each field of the Intune Win32 app form.
+- then either prints exactly what to paste into each field of the Intune Win32 app form (**guided manual setup**), or creates the app in Intune for you (**automatic setup via the API**, optional — see below).
 
-> **Which apps the wizard can package today:** the app wizard (`WindowsApp--InTune-Setup`) supports the `WinGet`, `MSI-Private-AzureBlob`, `EXE-Private-AzureBlob`, and `URL_Download` install methods. Apps that use `Custom_Script` (for example Microsoft Office and Dell Command Update) can be installed locally with `WindowsApp--Install-Local`, but the wizard can't package them yet — it builds the `.intunewin`, then stops with an "Unknown Install Method" error before generating the install commands and detection script. The Intune app itself is still created by hand in the Intune portal, using the files and text the wizard produces.
+> **Which apps the wizard can package today:** the app wizard (`WindowsApp--InTune-Setup`) supports the `WinGet`, `MSI-Private-AzureBlob`, `EXE-Private-AzureBlob`, and `URL_Download` install methods. Apps that use `Custom_Script` (for example Microsoft Office and Dell Command Update) can be installed locally with `WindowsApp--Install-Local`, but the wizard can't package them yet — it builds the `.intunewin`, then stops with an "Unknown Install Method" error before generating the install commands and detection script. In guided mode the Intune app is created by hand in the Intune portal, using the files and text the wizard produces; in automatic mode Setup creates it.
 
 **Management is editing a catalog, not maintaining packages.** Your deployable assets live in JSON manifests — a shared public catalog in this repo and your organization's private catalog in Azure Blob:
 
@@ -161,6 +162,34 @@ Most of the recurring cost of fleet deployment isn't the install itself — it's
 - **Reuse across the fleet** → define an asset once and deploy it everywhere, via Company Portal or on demand.
 
 This is the difference between maintaining *dozens of brittle, individually-built Intune packages* and maintaining *one catalog behind a runner that always pulls the current version.*
+
+### Publishing to Intune automatically (optional)
+
+Instead of copying the wizard's output into the Intune portal by hand, Setup can create the Win32 app for you through Microsoft Graph: upload the package, set the description, notes, category and detection script, assign it, and then read everything back to confirm Intune stored exactly what was sent. It is **opt-in and runs on an admin workstation only** — managed computers are not involved and never receive the credential. Without it, the guided walkthrough works exactly as before.
+
+**One-time setup** — run `Setup.ps1` → `Graph_API_Upload--InTune-Setup`:
+
+| Option | Use it to |
+|---|---|
+| 1 - Azure App Registration - Setup/Config | **Automatic:** sign in as an administrator; Setup creates an app registration named `PowerDeploy Intune Upload` (or reuses an existing one with that exact name, as it is), grants it two Microsoft Graph application permissions (`DeviceManagementApps.ReadWrite.All`, `Group.Read.All`), and creates, tests and saves a secret for this PC. **Manual:** enter the tenant ID, client ID and secret of an existing registration; it is saved only if it passes the test. |
+| 2 - Azure App Registration - Test config | Check the saved credential works (read-only). |
+| 3 - Azure App Registration - Rotate local PC secret | Replace this PC's secret (admin sign-in required). The new secret is tested before the old one is revoked; if the new one fails, the old one stays saved and working. |
+| 4 - Azure App Registration - Remove local PC secret | Delete this PC's saved secret, optionally revoking it in Entra (admin sign-in required for revoking; if revoking fails, the file is kept so you still know which secret to revoke). |
+| 5 - MAA Exclusions - Setup/Config manually | Show the portal steps for Multi-Admin Approval (below). |
+
+- **Who can run setup:** granting Microsoft Graph application permissions needs **Privileged Role Administrator** or **Global Administrator**. If you don't hold those, have someone who does create the registration and use the *Manual* choice.
+- **Admin sign-in prerequisite:** Automatic setup, rotation, and removal-with-revocation each open a temporary administrator sign-in, which needs `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser` (uploads themselves don't). The Microsoft sign-in screen names *Microsoft Graph Command Line Tools* (Microsoft's app for Graph PowerShell); leave **Consent on behalf of your organization** unchecked.
+- **Where the secret lives:** `%LOCALAPPDATA%\PowerDeploy\GraphUpload\credential.clixml`, encrypted with Windows DPAPI for your Windows account only. Lifetime is chosen at setup (default 180 days, up to 730); Setup warns 30 days before expiry. Automatic setup gives each admin PC its own secret; with Manual entry, avoid sharing one secret between PCs.
+- **Multi-Admin Approval (MAA):** if your tenant requires a second admin to approve app changes, add `PowerDeploy Intune Upload` to the **Exclusions** of the MAA *apps* access policy (Intune → Tenant administration → Multi Admin Approval → Access policies; option 5 prints the exact steps). The exclusion covers only uploads made by that app registration; changes made in the portal still need approval. It survives secret rotation.
+
+**Publishing** — in `Printer--InTune-Setup` or `WindowsApp--InTune-Setup`, choose **2 - Automatic setup via the API** when asked:
+
+1. Enter **Required** and then **Available** targets, separated by `;` — exact group names (letter case doesn't matter) or group object IDs, or `/AllDevices` / `/AllUsers` for Intune's built-in targets (e.g. `/AllDevices; Techs`). Leave both blank for no assignments. A typo is reported and you can re-enter the lists.
+2. Setup runs a **dry run** (nothing is created) and shows a review: name, publisher, version, description, notes, category, assignments, duplicate app names, and the secret's expiry.
+3. Confirm (and confirm again separately if an app with the same name already exists). Setup uploads, waits for Intune to publish, assigns, and verifies. On success it shows the new app's ID and portal link.
+4. If anything fails, Setup deletes the half-created app; if it can't, it shows the leftover app's ID so you can remove it. Either way you continue with the guided walkthrough — Setup never exits on a failure.
+
+**What goes where:** the **Description** (shown to users in the Company Portal) is, for printers, `Department`, `Location`, `Model`, `Asset` and `PrinterIP` (`N/A` for any that are blank); for apps, the catalog's `AppDescription`, or — for WinGet apps without one — the description from `winget show` (Microsoft Store first, then the WinGet community source), else `N/A`. The **Notes** (admin-only) hold the technical block: target and source repo/branch, source commit, `Verified`, install method, versions and prerequisites for apps, and a `Created:` timestamp. Repository URLs are shown without any embedded credentials.
 
 ---
 
@@ -213,7 +242,9 @@ TECHNICIAN (Setup.ps1, run as admin)
                                        (params Base64-encoded)
                  │
                  ▼
-        Technician uploads to Intune as a Win32 app
+        Technician creates the Win32 app in Intune —
+        by hand (guided walkthrough) or automatically
+        via Microsoft Graph (optional, admin workstation)
                  │
                  ▼
 ENDPOINT (SYSTEM context, triggered by Intune or on demand)
@@ -297,18 +328,22 @@ The same deployment serves two execution paths from one definition:
 
 - [`Setup.ps1`](Setup.ps1) — the technician's main entry point (guided wizards + local install/uninstall + config remediation generation). Its menu is built when it starts, so the numbers can change; the functions are:
   - `Adobe-Apps-FullCleanup--Uninstall-Local` — runs the bundled Adobe full-cleanup uninstaller on this machine.
+  - `Graph_API_Upload--InTune-Setup` — sets up, tests, rotates or removes the optional Intune upload credential, and shows the Multi-Admin Approval steps (see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
   - `Printer--Convert-Vendor-DriverPack` — turns a manufacturer's driver pack into a PowerDeploy driver zip (see [Migrating from a print server](#migrating-from-a-print-server)).
-  - `Printer--InTune-Setup` — packages a printer from `PrinterData.json` for Intune.
+  - `Printer--InTune-Setup` — packages a printer from `PrinterData.json` for Intune, then walks you through creating it or creates it automatically.
   - `Printer--Install-Local` / `Printer--Uninstall-Local` — installs or removes a printer on this machine.
   - `Registry_Remediations--InTune-Setup` — generates the detection/remediation scripts that push org configuration to the registry, and can optionally also build a `.intunewin` of the remediation script.
-  - `WindowsApp--InTune-Setup` — packages an app from the catalog for Intune (not `Custom_Script` apps yet).
+  - `WindowsApp--InTune-Setup` — packages an app from the catalog for Intune (not `Custom_Script` apps yet), then walks you through creating it or creates it automatically.
   - `WindowsApp--Install-Local` — installs a catalog app on this machine.
   - `WindowsApp--Uninstall-Local` — opens a sub-menu of search-and-uninstall methods for this machine: `AppPackage`, `CIM`, and `Registry`.
 - [`Generate_Install-Command.ps1`](Other_Tools/Generate_Install-Command.ps1) — builds the Base64-encoded Intune install/uninstall commands and detection scripts.
 - [`Security_Manager.ps1`](Other_Tools/Security_Manager.ps1) — enforces strict ACLs on PowerDeploy folders and registry.
+- [`Upload-InTuneWin32App.ps1`](Other_Tools/Upload-InTuneWin32App.ps1), [`InTune-GraphAPI_Helpers.ps1`](Other_Tools/InTune-GraphAPI_Helpers.ps1), [`Get-WinGetAppDescription.ps1`](Other_Tools/Get-WinGetAppDescription.ps1) — the optional Intune upload: uploader, Graph/credential library, and the WinGet description lookup (`winget show` only; it installs nothing, but does accept WinGet's source agreements on the workstation). Tested offline by [`Tests/IntuneGraphUpload.Tests.ps1`](Tests/IntuneGraphUpload.Tests.ps1) (Windows PowerShell 5.1 and PowerShell 7).
 - Print-server migration tools — [`Export-PrinterServer-CSV.ps1`](Other_Tools/Export-PrinterServer-CSV.ps1), [`Convert-PrinterCSV-ToJSON.ps1`](Other_Tools/Convert-PrinterCSV-ToJSON.ps1), [`Export-PrinterServer-Drivers.ps1`](Other_Tools/Export-PrinterServer-Drivers.ps1), and [`Convert-VendorPack-ToDriverZip.ps1`](Other_Tools/Convert-VendorPack-ToDriverZip.ps1). See below.
 
 ### Migrating from a print server
+
+> **Untested:** `Export-PrinterServer-CSV.ps1`, `Convert-PrinterCSV-ToJSON.ps1` and `Export-PrinterServer-Drivers.ps1` have not been validated end to end yet (export → convert → install). Review every output by hand. The printer installer refuses duplicate `PrinterName` entries, so check converted output for them.
 
 These four tools turn an existing Windows print server into `PrinterData.json` entries and driver zips. None of them changes your live `PrinterData.json` or uploads anything — you review the output and merge it by hand. Output goes under `TEMP\` in the PowerDeploy working directory; if the scripts aren't running from inside a PowerDeploy install (no `..\..\TEMP` folder), they write to a `TEMP\` folder inside the script's own folder (`Other_Tools\TEMP\`) instead.
 
@@ -407,7 +442,7 @@ Scripts write structured logs under the working directory, e.g. `C:\ProgramData\
 | `Security_Logs` | Security Manager |
 | `Download_Logs` | Azure Blob downloaders |
 | `Generator_Logs` | `Generate_Install-Command.ps1` |
-| `Other_Logs` | `Convert-VendorPack-ToDriverZip.ps1`, `Generate_Custom-Script_FromTemplate.ps1` |
+| `Other_Logs` | `Convert-VendorPack-ToDriverZip.ps1`, `Generate_Custom-Script_FromTemplate.ps1`, `Upload-InTuneWin32App.ps1` when run directly with `-File` (inside the wizards the uploader writes no log of its own; `Setup_Logs` records the review, the outcome, the new app's ID, and any failure or cleanup message) |
 | `Repair_Logs` | `General_Windows-Fixer.ps1` |
 
 The print-server migration tools `Export-PrinterServer-CSV.ps1`, `Convert-PrinterCSV-ToJSON.ps1`, and `Export-PrinterServer-Drivers.ps1` write to the console only — they don't create log files.
@@ -422,6 +457,7 @@ Each entry is timestamped and tagged with a severity level (`INFO`, `WARNING`, `
 - **ACL enforcement** via the Security Manager: working folders, the Intune Management Extension log folder (`C:\ProgramData\Microsoft\IntuneManagementExtension\Logs`), and the `HKLM\SOFTWARE\PowerDeploy` hive are restricted to SYSTEM + Administrators, with inheritance broken.
 - **Path validation** guards against malformed/injection-prone paths before any file or registry operation runs.
 - **Azure Blob access** uses scoped, read-only SAS tokens (or AAD for user-context scenarios) rather than embedded account keys.
+- **Endpoints hold no tenant credentials.** The only PowerDeploy credential that can change Intune is the optional upload secret, which lives on an admin workstation only, DPAPI-encrypted for one Windows account, and expires (default 180 days). Its permissions cover Intune apps (including app configuration and protection policies) and reading all groups and their members — protect that workstation and account accordingly, and remove the secret from PCs that no longer need it. Entra administrators who can manage the app registration can also issue new secrets for it. See [ARCHITECTURE.md §7](ARCHITECTURE.md#7-trust-and-security-model).
 
 ---
 
@@ -439,7 +475,7 @@ Each entry is timestamped and tagged with a severity level (`INFO`, `WARNING`, `
 2. **Stand up Azure Blob Storage**: containers for application payloads and printer drivers, plus your private `ApplicationData.json` / `PrinterData.json`.
 3. **Generate and deploy the config remediation** from `Setup.ps1` (`Registry_Remediations--InTune-Setup`) to populate `HKLM\SOFTWARE\PowerDeploy` on your fleet. The wizard only asks for four values: your private repo URL, the repo token, and the printer and application container SAS keys. The other three are fixed defaults in the `RegRemediationScript` function of [`Other_Tools/Generate_Install-Command.ps1`](Other_Tools/Generate_Install-Command.ps1): `StorageAccountName` = `powerdeploy`, `PrinterDataJSONpath` = `printers/PrinterData.json`, and `ApplicationDataJSONpath` = `applications/ApplicationData.json`. **If your storage account name, container names, or manifest paths are different, edit those defaults (in your private fork) before generating the scripts.**
 4. **Run `Setup.ps1` as an administrator** and follow a wizard to add an app or printer: it can test the install locally, then produce the `.intunewin`, the install/uninstall commands, and the detection script. (`Custom_Script` apps can't be packaged by the wizard yet — see [Packaging and managing your assets](#packaging-and-managing-your-assets).)
-5. **Create the Win32 app in Intune** using those generated artifacts, and assign it.
+5. **Create the Win32 app in Intune** using those generated artifacts, and assign it — by hand from the guided walkthrough, or let Setup do it (optional; set up once with `Graph_API_Upload--InTune-Setup`, see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
 
 ---
 

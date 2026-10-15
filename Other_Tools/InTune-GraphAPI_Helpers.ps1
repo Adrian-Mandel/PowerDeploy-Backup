@@ -5805,7 +5805,7 @@ function Start-PDGraphSecretRotation {
     $answer.OldCredentialRetained = $false
     $answer.SavedTo           = [string]$saved.Path
     $answer.NewDaysUntilExpiry = $saved.DaysUntilExpiry
-    $answer.Warnings += 'The Multi-Admin Approval exclusion belongs to the application, so it still covers this workstation after the rotation.'
+    #$answer.Warnings += 'The Multi-Admin Approval exclusion belongs to the application, so it still covers this workstation after the rotation.'
 
     # --- 5. only now revoke the old key, by exact id ---------------------------------------
     if ($SkipOldKeyRevocation) {
