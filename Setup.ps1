@@ -5091,7 +5091,7 @@ Function Read-IntunePublishChoice {
 Function Read-IntuneGroupList {
     param([Parameter(Mandatory = $true)][string]$Intent)
 
-    Write-Log ("Enter the {0} assignment groups, separated by ';' (exact group names or group object IDs). Leave blank for none." -f $Intent.ToUpperInvariant()) 'WARNING'
+    Write-Log ("Enter the {0} assignment groups, separated by ';' (e.g. IT PCs; Techs). Use exact group names or object IDs, or /AllDevices or /AllUsers for Intune's built-in targets. Leave blank for none." -f $Intent.ToUpperInvariant()) 'WARNING'
     $Raw = [string](Read-Host $Intent)
 
     # Spec 5.2: split on semicolons, trim, discard empty pieces. Returned as plain pipeline items:
@@ -5159,7 +5159,11 @@ Function Show-IntuneUploadReview {
     } else {
         Write-Log "ASSIGNMENTS:"
         foreach ($Group in $Groups) {
-            Write-Log ("     [{0}] {1} ({2})" -f $Group.Intent, $Group.DisplayName, $Group.Id)
+            if (([string]$Group.Id).StartsWith('/')) {
+                Write-Log ("     [{0}] {1}" -f $Group.Intent, $Group.DisplayName)
+            } else {
+                Write-Log ("     [{0}] {1} ({2})" -f $Group.Intent, $Group.DisplayName, $Group.Id)
+            }
         }
     }
 

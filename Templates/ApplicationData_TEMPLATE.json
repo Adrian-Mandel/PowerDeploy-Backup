@@ -1,12 +1,12 @@
 {
   "Applications": [
   {
-    "ApplicationName": "Visual_Studio_Code",
+    "ApplicationName": "Visual Studio Code",
     "InstallMethod": "WinGet",
     "WinGetID": "Microsoft.VisualStudioCode"
   },
   {
-    "ApplicationName": "Microsoft_Office365--Word-Excel-PowerPoint",
+    "ApplicationName": "Microsoft Office365 Word-Excel-PowerPoint",
     "InstallMethod": "Custom_Script",
     "CustomScriptArgs": "-IncludedApps \"Excel,Word,PowerPoint\"",
     "ScriptPathFromRepoRoot": "Installers\\InstallApp-MS_Office-FullClean.ps1",

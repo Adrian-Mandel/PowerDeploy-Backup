@@ -57,6 +57,14 @@ if (-not $script:PDGraph) {
 
         # --- Required application roles (spec 7.1) ---
         RequiredAppRoles  = @('DeviceManagementApps.ReadWrite.All', 'Group.Read.All')
+
+        # Intune's built-in assignment targets, typed as commands so they can never collide with
+        # a real group's display name. The key is the lower-cased command; Id is what flows through
+        # review -> execution -> read-back in place of a group object id.
+        BuiltInTargets    = @{
+            '/alldevices' = @{ Id = '/AllDevices'; DisplayName = 'All devices (built-in Intune target)'; ODataType = '#microsoft.graph.allDevicesAssignmentTarget' }
+            '/allusers'   = @{ Id = '/AllUsers';   DisplayName = 'All users (built-in Intune target)';   ODataType = '#microsoft.graph.allLicensedUsersAssignmentTarget' }
+        }
         GraphServiceAppId = '00000003-0000-0000-c000-000000000000'
         AppDisplayName    = 'PowerDeploy Intune Upload'
 
@@ -2578,6 +2586,42 @@ function Resolve-PDGraphGroup {
     return @($matches)[0]
 }
 
+function Get-PDBuiltInAssignmentTarget {
+    <#
+        .SYNOPSIS
+        Maps /AllDevices or /AllUsers to Intune's built-in assignment target; $null for anything
+        that is not a command. An unknown /command is an error, never a group lookup, so a typo
+        like /AllDevice cannot quietly become a search for a group of that name.
+    #>
+    param(
+        [AllowNull()][string]$Term,
+        [string]$Stage = 'Preflight'
+    )
+
+    $text = Get-PDGraphTrimmedText -Value $Term
+    if ([string]::IsNullOrWhiteSpace($text) -or (-not $text.StartsWith('/'))) { return $null }
+
+    $known = $script:PDGraph.BuiltInTargets[$text.ToLowerInvariant()]
+    if ($null -eq $known) {
+        $names = (@($script:PDGraph.BuiltInTargets.Values | ForEach-Object { $_.Id }) | Sort-Object) -join ' or '
+        Stop-PDGraphError -Message ("Unknown option '{0}'. Use {1}, or a group name or object id." -f $text, $names) -Stage $Stage
+    }
+    return $known
+}
+
+function Get-PDBuiltInAssignmentTargetByType {
+    <# The command (/AllDevices, /AllUsers) for a target @odata.type read back from Intune, or $null. #>
+    param([AllowNull()][string]$ODataType)
+
+    $type = Get-PDGraphTrimmedText -Value $ODataType
+    if ([string]::IsNullOrWhiteSpace($type)) { return $null }
+    if (-not $type.StartsWith('#')) { $type = '#' + $type }
+    foreach ($entry in @($script:PDGraph.BuiltInTargets.Values)) {
+        if ([string]$entry.ODataType -ieq $type) { return [string]$entry.Id }
+    }
+    return $null
+}
+
 function Resolve-PDGraphGroups {
     <#
         .SYNOPSIS
@@ -2609,7 +2653,13 @@ function Resolve-PDGraphGroups {
     $ownerByGroup = @{}
 
     foreach ($item in $requested) {
-        $entry = Resolve-PDGraphGroup -Query $item.Term -AuthContext $AuthContext -Intent $item.Intent -Stage $Stage
+        # /AllDevices and /AllUsers are Intune's built-in targets, not directory groups.
+        $builtIn = Get-PDBuiltInAssignmentTarget -Term $item.Term -Stage $Stage
+        if ($null -ne $builtIn) {
+            $entry = [pscustomobject]@{ Id = [string]$builtIn.Id; DisplayName = [string]$builtIn.DisplayName; Intent = $item.Intent }
+        } else {
+            $entry = Resolve-PDGraphGroup -Query $item.Term -AuthContext $AuthContext -Intent $item.Intent -Stage $Stage
+        }
 
         $key = $entry.Id.ToLowerInvariant()
         $intentKey = $item.Intent + '|' + $key
@@ -2621,7 +2671,7 @@ function Resolve-PDGraphGroups {
         $seenByIntent[$intentKey] = $true
 
         if ($ownerByGroup.ContainsKey($key) -and ($ownerByGroup[$key] -ne $item.Intent)) {
-            Stop-PDGraphError -Message ("The group '{0}' ({1}) was given as both a Required and an Available group. Choose one intent." -f $entry.DisplayName, $entry.Id) -Stage $Stage
+            Stop-PDGraphError -Message ("'{0}' ({1}) was given as both a Required and an Available target. Choose one intent." -f $entry.DisplayName, $entry.Id) -Stage $Stage
         }
         $ownerByGroup[$key] = $item.Intent
 
@@ -3154,13 +3204,18 @@ function New-PDIntuneAssignmentPayload {
             Stop-PDGraphError -Message ("An assignment for group '{0}' has the intent '{1}'; only 'required' and 'available' exist." -f $id, $intent) -Stage $Stage
         }
 
+        $builtIn = Get-PDBuiltInAssignmentTarget -Term $id -Stage $Stage
+        if ($null -ne $builtIn) {
+            # A built-in target carries no group id: its type IS the target.
+            $target = @{ '@odata.type' = [string]$builtIn.ODataType }
+        } else {
+            $target = @{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = $id }
+        }
+
         $assignments += @{
             '@odata.type' = '#microsoft.graph.mobileAppAssignment'
             intent        = $intent
-            target        = @{
-                '@odata.type' = '#microsoft.graph.groupAssignmentTarget'
-                groupId       = $id
-            }
+            target        = $target
         }
     }
 
@@ -3613,6 +3668,10 @@ function Compare-PDIntuneAssignmentSet {
         if ($null -eq $assignment) { continue }
         $id     = [string](Get-PDIntuneReadBackValue -Object $assignment -Path 'target/groupId')
         $intent = [string](Get-PDIntuneReadBackValue -Object $assignment -Path 'intent')
+        if ([string]::IsNullOrWhiteSpace($id)) {
+            # A built-in target has no group id; it is identified by its type (/AllDevices, /AllUsers).
+            $id = Get-PDBuiltInAssignmentTargetByType -ODataType ([string](Get-PDIntuneReadBackValue -Object $assignment -Path 'target/@odata.type'))
+        }
         if ([string]::IsNullOrWhiteSpace($id)) { continue }
 
         $key = (($id.Trim()) + '|' + (($intent.Trim()).ToLowerInvariant()))

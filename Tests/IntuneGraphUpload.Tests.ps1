@@ -1774,6 +1774,45 @@ Add-TestCase 'G04' 'Group resolution: missing, ambiguous, apostrophes, and pagin
     Clear-PDMockGraph
 }
 
+Add-TestCase 'G05' '/AllDevices and /AllUsers are built-in targets; an unknown /command is refused' {
+    $groupId = [guid]::NewGuid().ToString()
+    Reset-PDM3Scenario -Groups @(@{ Id = $groupId; DisplayName = 'Techs' })
+
+    # Mixed with a real group, any letter case, repeated: one built-in entry plus the group.
+    $preflight = Invoke-PDM3Preflight -Inputs (New-PDM3InputSet -Case 'g05-mixed') -RequiredGroups @('/AllUsers') -AvailableGroups @('/alldevices; Techs; /AllDevices')
+    $groups = @($preflight.ResolvedGroups)
+    Assert-Equal 3 $groups.Count 'one /AllUsers, one /AllDevices, one group'
+    $devices = @($groups | Where-Object { $_.Id -eq '/AllDevices' })
+    Assert-Equal 1 $devices.Count 'the repeated /AllDevices collapses to one'
+    Assert-Equal 'available' ([string]$devices[0].Intent) 'with the intent it was given'
+    Assert-Like '*built-in*' ([string]$devices[0].DisplayName) 'and is labelled as a built-in target'
+    Assert-Equal 0 @(@($script:MockGraphCalls) | Where-Object { ([string]$_.Uri) -like '*groups*AllDevices*' -or ([string]$_.Uri) -like '*groups*alldevices*' }).Count 'no directory lookup for a built-in target'
+
+    # A typo is refused, not looked up as a group.
+    $caught = Assert-Throws -Body { Invoke-PDM3Preflight -Inputs (New-PDM3InputSet -Case 'g05-typo') -AvailableGroups @('/AllDevice') }
+    Assert-Like "*Unknown option '/AllDevice'*" (Get-PDGraphErrorInfo -ErrorRecord $caught).Message 'the typo is named'
+
+    # Same built-in in both intents follows the group conflict rule.
+    $caught = Assert-Throws -Body { Invoke-PDM3Preflight -Inputs (New-PDM3InputSet -Case 'g05-conflict') -RequiredGroups @('/AllDevices') -AvailableGroups @('/alldevices') }
+    Assert-Like '*both a Required and an Available*' (Get-PDGraphErrorInfo -ErrorRecord $caught).Message 'neither intent wins'
+
+    # The payload carries the built-in target type and no group id; the read-back recognizes it.
+    $payload = New-PDIntuneAssignmentPayload -ResolvedGroups @($devices[0], @($groups | Where-Object { $_.Id -eq $groupId })[0])
+    $json = ConvertTo-PDGraphJson -InputObject $payload
+    Assert-Like '*"#microsoft.graph.allDevicesAssignmentTarget"*' $json 'All devices target type sent'
+    $builtInTarget = @($payload.mobileAppAssignments | Where-Object { $_.target['@odata.type'] -like '*allDevices*' })[0].target
+    Assert-True (-not $builtInTarget.ContainsKey('groupId')) 'a built-in target carries no groupId'
+
+    $readBack = @(
+        @{ id = 'a1'; intent = 'available'; target = @{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } },
+        (New-PDM4Assignment -Id 'a2' -GroupId $groupId -Intent 'available')
+    )
+    $expected = @($devices[0], @($groups | Where-Object { $_.Id -eq $groupId })[0])
+    Assert-Equal 0 @(Compare-PDIntuneAssignmentSet -Expected $expected -Assignments $readBack).Count 'the read-back agrees'
+    $missing = @(Compare-PDIntuneAssignmentSet -Expected $expected -Assignments @($readBack[1]))
+    Assert-Equal 1 $missing.Count 'a missing All devices assignment is a difference'
+}
+
 Add-TestCase 'A01' 'A missing category warns, creates nothing, and associates nothing' {
     Reset-PDM3Scenario -Categories @(@{ id = ([guid]::NewGuid().ToString()); displayName = 'Printers' })
 
