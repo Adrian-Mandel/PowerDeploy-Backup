@@ -76,8 +76,12 @@ function New-PDWinGetDescriptionResult {
         # Untyped on purpose: a [string] parameter would turn $null into ''.
         [AllowNull()]$Description = $null,
         [AllowNull()]$Source = $null,
-        [AllowNull()]$PackageId = $null
+        [AllowNull()]$PackageId = $null,
+        # Kept even when no description was found: the publisher alone is still useful.
+        [AllowNull()]$Publisher = $null
     )
+
+    if ([string]::IsNullOrWhiteSpace([string]$Publisher)) { $Publisher = $null } else { $Publisher = ([string]$Publisher).Trim() }
 
     if ($Status -eq 'Found') {
         $Description = [string]$Description
@@ -94,6 +98,7 @@ function New-PDWinGetDescriptionResult {
         Description = $Description
         Source      = $Source
         PackageId   = $PackageId
+        Publisher   = $Publisher
         Status      = $Status
         Message     = $Message
     }
@@ -232,7 +237,7 @@ function ConvertFrom-PDWinGetShowOutput {
         'Description:' line plus its indented continuation lines, ending at the next top-level
         field. Only stdout should be passed in; stderr is never a description.
 
-        Returns { Status; Description; PackageId; Message } where Status is Found, NotFound,
+        Returns { Status; Description; PackageId; Publisher; Message } where Status is Found, NotFound,
         or UnrecognizedOutput. Unknown or localized labels, or an unrecognized field boundary,
         are UnrecognizedOutput - never a guess.
 
@@ -248,8 +253,8 @@ function ConvertFrom-PDWinGetShowOutput {
     )
 
     $fail = {
-        param([string]$Status, [string]$Message)
-        [pscustomobject]@{ Status = $Status; Description = $null; PackageId = $null; Message = $Message }
+        param([string]$Status, [string]$Message, $Publisher = $null)
+        [pscustomobject]@{ Status = $Status; Description = $null; PackageId = $null; Publisher = $Publisher; Message = $Message }
     }
 
     if ([string]::IsNullOrWhiteSpace($Text)) { return (& $fail 'UnrecognizedOutput' 'winget produced no output.') }
@@ -302,6 +307,7 @@ function ConvertFrom-PDWinGetShowOutput {
     $labelPattern = '^(?<label>[^\s:][^:]*):(?:\s(?<value>.*))?$'
 
     $descriptionLines = $null
+    $publisher = $null
     $sawKnownLabel = $false
     $i = $headerIndex + 1
     while ($i -lt $lines.Count) {
@@ -315,6 +321,12 @@ function ConvertFrom-PDWinGetShowOutput {
             return (& $fail 'UnrecognizedOutput' ("Unrecognized winget field line: '{0}'." -f (Get-PDWinGetShortText -Text $line -MaxLength 60)))
         }
         $sawKnownLabel = $true
+
+        # Publisher is a one-line field listed before Description in every captured output.
+        if ($field.Groups['label'].Value -ceq 'Publisher') {
+            $value = $field.Groups['value'].Value
+            if (-not [string]::IsNullOrWhiteSpace($value)) { $publisher = $value.Trim() }
+        }
 
         if ($field.Groups['label'].Value -ceq 'Description') {
             $descriptionLines = New-Object System.Collections.Generic.List[string]
@@ -353,17 +365,18 @@ function ConvertFrom-PDWinGetShowOutput {
     }
 
     if ($null -eq $descriptionLines) {
-        if ($sawKnownLabel) { return (& $fail 'NotFound' 'The package has no Description field.') }
+        if ($sawKnownLabel) { return (& $fail 'NotFound' 'The package has no Description field.' $publisher) }
         return (& $fail 'UnrecognizedOutput' 'winget output has no recognized fields.')
     }
 
     $description = ($descriptionLines -join "`n").Trim()
-    if ($description.Length -eq 0) { return (& $fail 'NotFound' 'The package Description is empty.') }
+    if ($description.Length -eq 0) { return (& $fail 'NotFound' 'The package Description is empty.' $publisher) }
 
     return [pscustomobject]@{
         Status      = 'Found'
         Description = $description
         PackageId   = $headerId
+        Publisher   = $publisher
         Message     = 'Description found.'
     }
 }
@@ -387,6 +400,7 @@ function Get-WinGetAppDescription {
         Returns exactly one object:
             Found (bool), Description (string or null), Source ('msstore', 'winget', or null),
             PackageId (exact matched ID or null),
+            Publisher (the package's Publisher field, or null; kept even when no description was found),
             Status (Found | NotFound | Unavailable | Timeout | UnrecognizedOutput),
             Message (short operator-readable text)
 
@@ -422,6 +436,7 @@ function Get-WinGetAppDescription {
         }
 
         $attempts = @()
+        $firstPublisher = $null
         foreach ($source in @('msstore', 'winget')) {
             $arguments = 'show --id {0} --exact --source {1} --disable-interactivity --accept-source-agreements' -f $WinGetId, $source
             Write-Verbose ("Get-WinGetAppDescription: {0} {1}" -f $exe, $arguments)
@@ -439,8 +454,11 @@ function Get-WinGetAppDescription {
             }
 
             $parsed = ConvertFrom-PDWinGetShowOutput -Text $run.StdOut -ExpectedId $WinGetId
+            if (($null -eq $firstPublisher) -and -not [string]::IsNullOrWhiteSpace([string]$parsed.Publisher)) { $firstPublisher = [string]$parsed.Publisher }
             if ($parsed.Status -eq 'Found') {
-                return (New-PDWinGetDescriptionResult -Status 'Found' -Description $parsed.Description -Source $source -PackageId $parsed.PackageId -Message ("Description found in the {0} source." -f $source))
+                $foundPublisher = $parsed.Publisher
+                if ([string]::IsNullOrWhiteSpace([string]$foundPublisher)) { $foundPublisher = $firstPublisher }
+                return (New-PDWinGetDescriptionResult -Status 'Found' -Description $parsed.Description -Source $source -PackageId $parsed.PackageId -Publisher $foundPublisher -Message ("Description found in the {0} source." -f $source))
             }
 
             $detail = $parsed.Message
@@ -456,7 +474,7 @@ function Get-WinGetAppDescription {
             if ($attempt.Status -ne 'NotFound') { $status = $attempt.Status; break }
         }
         $summary = ($attempts | ForEach-Object { '{0}: {1}' -f $_.Source, $_.Message }) -join ' '
-        return (New-PDWinGetDescriptionResult -Status $status -Message $summary)
+        return (New-PDWinGetDescriptionResult -Status $status -Message $summary -Publisher $firstPublisher)
     } catch {
         return (New-PDWinGetDescriptionResult -Status 'Unavailable' -Message ("Description lookup failed: {0}" -f (Get-PDWinGetShortText -Text $_.Exception.Message)))
     }

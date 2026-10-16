@@ -284,7 +284,9 @@ function Test-PathSyntaxValidity {
 function Write-Log {
     param(
         [string]$Message,
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+        # Write to the log file only. Used by Write-LogBlock, which shows the text on screen itself.
+        [switch]$LogOnly
     )
 
     # Ensure log directory exists
@@ -305,7 +307,7 @@ function Write-Log {
     }
     
     
-    switch ($Level) {
+    if (-not $LogOnly) { switch ($Level) {
         "ERROR"   { Write-Host $logEntry -ForegroundColor Red }
         "WARNING" { Write-Host $logEntry -ForegroundColor Yellow }
         "SUCCESS" { Write-Host $logEntry -ForegroundColor Green }
@@ -314,7 +316,7 @@ function Write-Log {
         "INFO2"    { Write-Host $logEntry }
 
         default   { Write-Host $logEntry }
-    }
+    } }
     
 
     # Resilient log write. A real-time AV/EDR filter driver (Defender, CrowdStrike, etc.)
@@ -332,6 +334,19 @@ function Write-Log {
             if ($logAttempt -eq 5) { break }   # give up quietly after ~160ms of retries
             Start-Sleep -Milliseconds 40
         }
+    }
+}
+
+function Write-LogBlock {
+    param([AllowNull()][object]$Text)
+
+    # Shows a block exactly as-is (no timestamp prefix, so it can be copied straight into the Intune
+    # portal) and records the same text in the log, one line at a time. Never pass command text or
+    # anything else that can carry a repository token - that stays on screen only.
+    $Block = [string]$Text
+    Write-Host $Block
+    foreach ($Line in ($Block -split "`r?`n")) {
+        if (-not [string]::IsNullOrWhiteSpace($Line)) { Write-Log "    | $Line" "INFO2" -LogOnly }
     }
 }
 
@@ -980,11 +995,11 @@ function Printer--InTune-Setup{
     Write-Log ""  
     Write-Log " 3 - APP INFORMATION:"
     write-log "     - NAME (Pre-made default):"
-Write-Host "`n$PotentialPrinterInTuneName`n"
+Write-LogBlock "`n$PotentialPrinterInTuneName`n"
     Write-Log "     - DESCRIPTION (Pre-made default, shown to users in the Company Portal):"
 
     Write-Host ""
-    Write-Host $PrinterDescriptionText
+    Write-LogBlock $PrinterDescriptionText
     Write-Host ""
 
     # Stamped once here, kept in its own variable so the technical block is never stamped twice
@@ -992,13 +1007,13 @@ Write-Host "`n$PotentialPrinterInTuneName`n"
 
     Write-Log "     - NOTES (Pre-made default, admins only - near the bottom of the App information page):"
     Write-Host ""
-    Write-Host $PrinterManualNotes
+    Write-LogBlock $PrinterManualNotes
     Write-Host ""
 
     Write-Log "     - PUBLISHER: Your organization name (default is PowerDeploy)"
     Write-Log "     - VERSION: "
     
-    Write-Host "`n$CurrentGitVer`n"
+    Write-LogBlock "`n$CurrentGitVer`n"
     
     Write-Log "     - Category: Printers (Create this category if you do not already have, it will take some time to show up: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps)"
     Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
@@ -1857,6 +1872,7 @@ Function WindowsApp--InTune-Setup{
 
 
 
+    $CatalogPublisher = $publisher
     if($publisher -eq "" -or $null -eq $publisher){$publisher = "PowerDeploy"}
     if($AppDescription -eq "" -or $null -eq $AppDescription){$AppDescription = "N/A"}
     if($PreRequisites -eq "" -or $null -eq $PreRequisites){$PreRequisites = "N/A"}
@@ -1866,10 +1882,22 @@ Function WindowsApp--InTune-Setup{
 
     # Intune text, built once before any publishing choice (spec 5.1 step 2). $AppDescription stays
     # the JSON value; $TheAppDescription is the final Company Portal text (spec 4.3).
-    $AppDescriptionResult = Get-IntuneAppDescriptionText -AppDescription $AppDescription -InstallMethod $InstallMethod -WinGetID $WinGetID
+    # One WinGet lookup serves both the description and the publisher, and only runs when either
+    # is missing from the catalog.
+    $WinGetLookup = $null
+    if (([string]$InstallMethod -eq 'WinGet') -and -not (Test-IntuneFieldMissing -Value $WinGetID) -and
+        ((Test-IntuneFieldMissing -Value $AppDescription) -or (Test-IntuneFieldMissing -Value $CatalogPublisher))) {
+        $WinGetLookup = Invoke-IntuneWinGetLookup -WinGetID $WinGetID
+    }
+
+    $AppDescriptionResult = Get-IntuneAppDescriptionText -AppDescription $AppDescription -InstallMethod $InstallMethod -WinGetID $WinGetID -Lookup $WinGetLookup
     $TheAppDescription = [string]$AppDescriptionResult.Text
     if ($AppDescriptionResult.Warning) { Write-Log $AppDescriptionResult.Warning "WARNING" }
     Write-Log "Description source: $($AppDescriptionResult.Source)" "INFO2"
+
+    $AppPublisherResult = Get-IntuneAppPublisherText -CatalogPublisher $CatalogPublisher -InstallMethod $InstallMethod -Lookup $WinGetLookup
+    $publisher = [string]$AppPublisherResult.Text
+    Write-Log "Publisher: $publisher (source: $($AppPublisherResult.Source))" "INFO2"
 
     $AppNotesFields = [ordered]@{
         'InstallMethod'    = $InstallMethod
@@ -1879,8 +1907,9 @@ Function WindowsApp--InTune-Setup{
     }
     $AppTechnicalNotes = New-IntuneTechnicalNotes -AppFields $AppNotesFields -TargetRepo $RepoUrl -TargetBranch $Global:RepoBranch -SourceCommit $CurrentGitVer -Verified $Verified -SourceRepoRoot $RepoRoot
 
-    # AppVersion: PackagedVersion, else Version, else none (spec 4.1)
-    $AppIntuneVersion = ""
+    # AppVersion: PackagedVersion, else Version, else the PowerDeploy commit - like printers, and
+    # never WinGet's version, because WinGet installs whatever is latest on each device.
+    $AppIntuneVersion = [string]$CurrentGitVer
     if (-not (Test-IntuneFieldMissing -Value $PackagedVersion)) { $AppIntuneVersion = [string]$PackagedVersion }
     elseif (-not (Test-IntuneFieldMissing -Value $Version)) { $AppIntuneVersion = [string]$Version }
 
@@ -1923,7 +1952,7 @@ Function WindowsApp--InTune-Setup{
     Write-Log "" 
     Write-Log " 3 - APP INFORMATION:"
     write-log "     - NAME (Pre-made default):"
-    Write-Host "`n$PotentialAppInTuneName`n"
+    Write-LogBlock "`n$PotentialAppInTuneName`n"
     #Write-Log "         - What I recommend: ""$PotentialAppInTuneName"""
 
     # $Global:DeployMode = "PUBLIC-DEVELOPMENT"
@@ -1936,7 +1965,7 @@ Function WindowsApp--InTune-Setup{
     Write-Log "     - DESCRIPTION (Pre-made default, shown to users in the Company Portal):"
 
     Write-Host ""
-    write-host $TheAppDescription
+    Write-LogBlock $TheAppDescription
     Write-Host ""
 
     # Stamped once here, kept in its own variable so the technical block is never stamped twice
@@ -1944,25 +1973,25 @@ Function WindowsApp--InTune-Setup{
 
     Write-Log "     - NOTES (Pre-made default, admins only - near the bottom of the App information page):"
     Write-Host ""
-    Write-Host $AppManualNotes
+    Write-LogBlock $AppManualNotes
     Write-Host ""
     
     
     #Write-Log "     - Publisher: Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."
     Write-Log "     - PUBLISHER: "
     Write-Host "`n"
-    If ($publisher -eq "N/A"){Write-Host "Currently empty. Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."} else {Write-Host "$Publisher"}
+    If ($publisher -eq "N/A"){Write-LogBlock "Currently empty. Look up the publisher if you are not sure. You can check the Windows Store, app website, etc."} else {Write-LogBlock "$Publisher"}
     Write-Host "`n"
     #Write-Log "     - Version: Recommend to leave blank unless you are using a static MSI installer with a set version."
     Write-Log "     - VERSION:"
     Write-Host "`n"
     #If ($VERSION -eq "N/A"){Write-Host "Currently empty."} else {Write-Host "$Publisher"}
-    If ($PackagedVersion -ne "N/A"){Write-Host "$PackagedVersion"} Elseif($Version -ne "N/A"){ Write-Host "$Version"} else { Write-Host "N/A"}
+    Write-LogBlock "$AppIntuneVersion"
     Write-Host "`n"
     #Write-Log "     - Category: Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"
     Write-Log "     - CATEGORY:"
     Write-Host "`n"
-    If($Category -ne "" -and $Category -ne $null) {Write-Host "$Category"} else {Write-Host "Currently empty. Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"}
+    If($Category -ne "" -and $Category -ne $null) {Write-LogBlock "$Category"} else {Write-LogBlock "Currently empty. Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"}
     Write-Host "`n"
     Write-Log "     - LOGO: Optional - You could create something with Canva using your organization logo, but standardize it"
     Write-Log "     - Everything else on this page is up to your discretion."
@@ -4993,6 +5022,8 @@ Function New-IntuneTechnicalNotes {
     $Lines = @()
 
     if ($null -ne $AppFields) {
+        # Labelled like the POWERDEPLOY DATA block below, so neither section reads as stray data.
+        $Lines += 'INSTALLER DATA'
         foreach ($Key in $AppFields.Keys) {
             $Lines += ('{0}: {1}' -f $Key, (ConvertTo-IntuneFieldText -Value $AppFields[$Key]))
         }
@@ -5023,11 +5054,35 @@ Function Complete-IntuneManualNotes {
     return (([string]$Notes).TrimEnd() + "`r`n" + 'Created: ' + $Now.ToString('yyyy-MM-ddTHH:mm:sszzz', [System.Globalization.CultureInfo]::InvariantCulture))
 }
 
+Function Invoke-IntuneWinGetLookup {
+    param([AllowNull()][string]$WinGetID)
+
+    # One read-only 'winget show' per app selection, shared by the description and the publisher.
+    # Always returns an object with Found / Description / Publisher / Status / Message.
+    $Failed = { param($Status, $Message) [pscustomobject]@{ Found = $false; Description = $null; Publisher = $null; Source = $null; Status = $Status; Message = $Message } }
+
+    if (-not (Get-Command -Name 'Get-WinGetAppDescription' -CommandType Function -ErrorAction SilentlyContinue)) {
+        return (& $Failed 'Unavailable' "The WinGet lookup is not available ($WinGetDescriptionLoadError).")
+    }
+
+    Write-Log "Looking up '$WinGetID' with WinGet for its description and publisher (read-only, up to a minute)..." 'INFO2'
+
+    try {
+        $Lookup = @(Get-WinGetAppDescription -WinGetId $WinGetID) | Select-Object -Last 1
+        if ($null -eq $Lookup) { return (& $Failed 'Unavailable' 'The WinGet lookup returned nothing.') }
+        return $Lookup
+    } Catch {
+        return (& $Failed 'Unavailable' "The WinGet lookup failed: $($_.Exception.Message)")
+    }
+}
+
 Function Get-IntuneAppDescriptionText {
     param(
         [AllowNull()][string]$AppDescription,
         [AllowNull()][string]$InstallMethod,
-        [AllowNull()][string]$WinGetID
+        [AllowNull()][string]$WinGetID,
+        # A lookup already made for this selection; when absent and needed, one is made here.
+        [AllowNull()][object]$Lookup
     )
 
     # Spec 4.3 decision sequence. The JSON is never written back and the app name is never used
@@ -5044,26 +5099,32 @@ Function Get-IntuneAppDescriptionText {
         return @{ Text = 'N/A'; Source = 'none'; Warning = 'The app installs with WinGet but has no WinGetID, so no description could be looked up. Using N/A.' }
     }
 
-    if (-not (Get-Command -Name 'Get-WinGetAppDescription' -CommandType Function -ErrorAction SilentlyContinue)) {
-        return @{ Text = 'N/A'; Source = 'none'; Warning = "The WinGet description lookup is not available ($WinGetDescriptionLoadError). Using N/A." }
-    }
+    if ($null -eq $Lookup) { $Lookup = Invoke-IntuneWinGetLookup -WinGetID $WinGetID }
 
-    Write-Log "Looking up the WinGet description for '$WinGetID' (read-only, up to a minute)..." 'INFO2'
-
-    $Lookup = $null
-    try {
-        $Lookup = @(Get-WinGetAppDescription -WinGetId $WinGetID) | Select-Object -Last 1
-    } Catch {
-        return @{ Text = 'N/A'; Source = 'none'; Warning = "The WinGet description lookup failed: $($_.Exception.Message) Using N/A." }
-    }
-
-    if (($null -ne $Lookup) -and $Lookup.Found -and -not (Test-IntuneFieldMissing -Value $Lookup.Description)) {
+    if ($Lookup.Found -and -not (Test-IntuneFieldMissing -Value $Lookup.Description)) {
         return @{ Text = [string]$Lookup.Description; Source = "WinGet ($($Lookup.Source))"; Warning = $null }
     }
 
-    $Status = 'Unknown'; $Reason = ''
-    if ($null -ne $Lookup) { $Status = [string]$Lookup.Status; $Reason = [string]$Lookup.Message }
-    return @{ Text = 'N/A'; Source = 'none'; Warning = ("No WinGet description was found for '{0}' ({1}: {2}). Using N/A." -f $WinGetID, $Status, $Reason) }
+    return @{ Text = 'N/A'; Source = 'none'; Warning = ("No WinGet description was found for '{0}' ({1}: {2}). Using N/A." -f $WinGetID, [string]$Lookup.Status, [string]$Lookup.Message) }
+}
+
+Function Get-IntuneAppPublisherText {
+    param(
+        [AllowNull()][string]$CatalogPublisher,
+        [AllowNull()][string]$InstallMethod,
+        [AllowNull()][object]$Lookup
+    )
+
+    # Catalog Publisher, else the publisher WinGet reports (WinGet apps only), else PowerDeploy.
+    if (-not (Test-IntuneFieldMissing -Value $CatalogPublisher)) {
+        return @{ Text = $CatalogPublisher; Source = 'JSON Publisher' }
+    }
+
+    if (([string]$InstallMethod -eq 'WinGet') -and ($null -ne $Lookup) -and -not (Test-IntuneFieldMissing -Value $Lookup.Publisher)) {
+        return @{ Text = [string]$Lookup.Publisher; Source = 'WinGet' }
+    }
+
+    return @{ Text = 'PowerDeploy'; Source = 'default' }
 }
 
 Function Read-IntunePublishChoice {
@@ -5126,13 +5187,15 @@ Function Show-IntuneUploadReview {
         Write-Log ""
         Write-Log "DESCRIPTION (shown to users in the Company Portal):"
         Write-Host ""
-        Write-Host $Meta.Description
+        Write-LogBlock $Meta.Description
         Write-Host ""
         Write-Log "NOTES (admins only):"
         Write-Host ""
-        Write-Host $Meta.Notes
+        Write-LogBlock $Meta.Notes
+        # The Created line is added by the uploader at creation time; show where it will go
+        # instead of a separate explanation line.
+        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.NotesTimestampNote)) { Write-LogBlock "Created: (added automatically when the app is created)" }
         Write-Host ""
-        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.NotesTimestampNote)) { Write-Log "     $($Meta.NotesTimestampNote)" 'INFO2' }
         Write-Log ""
     }
 

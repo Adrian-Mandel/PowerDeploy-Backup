@@ -4606,6 +4606,24 @@ Add-TestCase 'D07a' 'Parser extracts single-line descriptions from captured wing
     Assert-Equal 'A file archiver with a high compression ratio.' $sevenZip.Description 'exact text'
 }
 
+Add-TestCase 'D07f' 'Parser and result keep the Publisher field, even when there is no description' {
+    # The app wizard uses the same winget show output for the Company Portal publisher.
+    $sevenZip = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-7zip.7zip.txt') -ExpectedId '7zip.7zip'
+    Assert-Equal 'Igor Pavlov' ([string]$sevenZip.Publisher) 'community source publisher'
+    $portal = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'msstore-9WZDNCRFJ3PZ.txt') -ExpectedId '9WZDNCRFJ3PZ'
+    Assert-Equal 'Microsoft Corporation' ([string]$portal.Publisher) 'Store source publisher'
+
+    $noDescription = "Found Example App [Example.App]`r`nVersion: 1.0`r`nPublisher: Example Corp`r`nHomepage: https://example.invalid`r`n"
+    $parsed = ConvertFrom-PDWinGetShowOutput -Text $noDescription -ExpectedId 'Example.App'
+    Assert-Equal 'NotFound' $parsed.Status 'no description is still NotFound'
+    Assert-Equal 'Example Corp' ([string]$parsed.Publisher) 'but the publisher is kept'
+
+    $result = New-PDWinGetDescriptionResult -Status 'NotFound' -Message 'no description' -Publisher ' Example Corp '
+    Assert-True (-not $result.Found) 'not Found'
+    Assert-Equal 'Example Corp' ([string]$result.Publisher) 'publisher survives a missing description, trimmed'
+    Assert-True ($null -eq (New-PDWinGetDescriptionResult -Status 'Unavailable' -Publisher '  ').Publisher) 'a blank publisher is null'
+}
+
 Add-TestCase 'D07b' 'Parser preserves multiline descriptions and stops at the next top-level field' {
     $portal = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'msstore-9WZDNCRFJ3PZ.txt') -ExpectedId '9WZDNCRFJ3PZ'
     Assert-Equal 'Found' $portal.Status 'Store product id'
