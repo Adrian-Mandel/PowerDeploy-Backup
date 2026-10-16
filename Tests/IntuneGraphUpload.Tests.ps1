@@ -3865,7 +3865,7 @@ Add-TestCase 'M5-01' 'Setup.ps1 loads the feature at script scope and still has 
 
     # A load failure is recorded, not thrown: guided manual publishing has to survive it.
     Assert-Like '*$GraphUploadAvailable  = $false*' $text 'availability starts false'
-    Assert-Like '*Catch *{ *$GraphUploadLoadError = $_.Exception.Message*' ($text -replace "`r`n", ' ') 'a load failure is recorded, not raised'
+    Assert-Like '*Catch *{ *$GraphUploadLoadError = $_.Exception.Message*' ($text -replace "`r?`n", ' ') 'a load failure is recorded, not raised'
 }
 
 Add-TestCase 'M5-02' 'the provisioning menu offers exactly the spec 7.2 options and never exits' {
