@@ -1140,7 +1140,8 @@ function Invoke-PDIntuneUploadWriteStages {
                                              -Body (New-PDIntuneCategoryRefPayload -CategoryId $categoryId -Stage $stage) `
                                              -AuthContext $auth -RetryMode 'Write' `
                                              -Stage $stage -Description 'associate the existing category'
-            } else {
+            } elseif (([string]$Preflight.CategoryResult.Status) -ne 'NotRequested') {
+                # Only worth saying when a category was asked for and could not be used.
                 $warnings += ("The category was not associated (status {0})." -f [string]$Preflight.CategoryResult.Status)
             }
         }
