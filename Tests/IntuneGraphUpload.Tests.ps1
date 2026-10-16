@@ -2371,6 +2371,8 @@ function Reset-PDM4Scenario {
         CategoryIds       = @()
         AssignBody        = $null
         PublishPatch      = $null
+        IconPatch         = $null
+        IconRefused       = $false
         Deleted           = @()
     }
 
@@ -2537,7 +2539,16 @@ function Reset-PDM4Scenario {
 
         # --- Writes to the app resource ----------------------------------------------------------------
         if ($method -eq 'Patch') {
-            $script:M4.PublishPatch = [System.Text.Encoding]::UTF8.GetString($Request.BodyBytes)
+            $patchBody = [System.Text.Encoding]::UTF8.GetString($Request.BodyBytes)
+            # The icon is its own PATCH; keep it apart from the publish PATCH the read-back relies on.
+            if ($patchBody -like '*largeIcon*') {
+                $script:M4.IconPatch = $patchBody
+                if ($script:M4.IconRefused) {
+                    return (New-PDMockJsonResponse -Status 400 -Json (@{ error = @{ code = 'BadRequest'; message = 'The icon was refused by the test scenario.' } } | ConvertTo-Json -Compress))
+                }
+                return (New-PDMockJsonResponse -Status 204 -Json '')
+            }
+            $script:M4.PublishPatch = $patchBody
             return (New-PDMockJsonResponse -Status 204 -Json '')
         }
 
@@ -2738,7 +2749,8 @@ function Invoke-PDM4Upload {
         [string[]]$RequiredGroups = @(),
         [string[]]$AvailableGroups = @(),
         [switch]$AllowDuplicateName,
-        [switch]$NoRollback
+        [switch]$NoRollback,
+        [string]$IconFile
     )
 
     $arguments = @{
@@ -2758,6 +2770,7 @@ function Invoke-PDM4Upload {
     if ($PSBoundParameters.ContainsKey('Notes'))    { $arguments['Notes']    = $Notes }
     if ($AllowDuplicateName) { $arguments['AllowDuplicateName'] = [switch]::Present }
     if ($NoRollback)         { $arguments['NoRollback']         = [switch]::Present }
+    if ($PSBoundParameters.ContainsKey('IconFile')) { $arguments['IconFile'] = $IconFile }
 
     return (Invoke-PDIntuneUpload @arguments)
 }
@@ -3233,6 +3246,45 @@ Add-TestCase 'U07d' 'a flags value read back in a different order is the same se
     Assert-Equal 1 $diff.Count 'a missing flag is still a mismatch'
     $plain = [ordered]@{ 'Publisher' = @{ Path = 'publisher'; Value = 'x64,x86'; Secret = $false } }
     Assert-Equal 1 @(Compare-PDIntuneAppReadBack -Expected $plain -App ([pscustomobject]@{ publisher = 'x86,x64' })).Count 'ordinary text is not compared as a set'
+}
+
+Add-TestCase 'U08' 'the app icon is a best-effort PATCH after publishing that never fails the upload' {
+    $iconPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'Templates\Printer-Icon.png'
+    Assert-True (Test-Path -LiteralPath $iconPath) 'the standard printer icon ships in Templates'
+
+    # Set: one PATCH with the exact PNG bytes, after publish and before assignment.
+    Reset-PDM4Scenario
+    $result = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-ok') -IconFile $iconPath
+    Assert-True $result.Success ("the upload succeeds: {0}" -f $result.Message)
+    $body = $script:M4.IconPatch | ConvertFrom-Json
+    Assert-Equal 'image/png' ([string]$body.largeIcon.type) 'PNG mime type'
+    Assert-Equal '#microsoft.graph.mimeContent' ([string]$body.largeIcon.'@odata.type') 'mimeContent'
+    Assert-Equal ([Convert]::ToBase64String([System.IO.File]::ReadAllBytes($iconPath))) ([string]$body.largeIcon.value) 'the exact file bytes'
+    Assert-NotLike '*largeIcon*' ([string]$script:M4.PublishPatch) 'the publish PATCH does not carry the icon'
+    Assert-Equal 'printer-icon.png' ([string]$result.ReviewMetadata.IconFile).ToLowerInvariant() 'the review names the icon'
+
+    # Refused: still published and assigned, with a warning, and nothing rolled back.
+    Reset-PDM4Scenario
+    $script:M4.IconRefused = $true
+    $refused = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-refused') -IconFile $iconPath
+    Assert-True $refused.Success ("a refused icon does not fail the upload: {0}" -f $refused.Message)
+    Assert-Equal 0 @($script:M4.Deleted).Count 'nothing was deleted'
+    Assert-Like '*icon could not be set*' ((@($refused.Warnings)) -join ' | ') 'the operator is told'
+
+    # Not a PNG: no PATCH, a warning, upload still succeeds.
+    Reset-PDM4Scenario
+    $notPng = Join-Path $tempRoot 'not-an-icon.png'
+    Set-Content -LiteralPath $notPng -Value 'definitely not a png'
+    $bad = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-bad') -IconFile $notPng
+    Assert-True $bad.Success 'an invalid icon file does not fail the upload'
+    Assert-True ($null -eq $script:M4.IconPatch) 'no icon PATCH is sent for a non-PNG file'
+    Assert-Like '*not a PNG*' ((@($bad.Warnings)) -join ' | ') 'and it says why'
+
+    # No icon requested: no PATCH at all.
+    Reset-PDM4Scenario
+    $none = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-none')
+    Assert-True $none.Success 'plain upload still fine'
+    Assert-True ($null -eq $script:M4.IconPatch) 'no icon, no icon PATCH'
 }
 
 Add-TestCase 'U07a' 'An assignment read-back difference is never reported as success' {

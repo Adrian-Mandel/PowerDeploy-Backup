@@ -98,6 +98,8 @@ $InTuneGraphHelperScriptPath = "$RepoRoot\Other_Tools\InTune-GraphAPI_Helpers.ps
 $IntuneUploadScriptPath = "$RepoRoot\Other_Tools\Upload-InTuneWin32App.ps1"
 # Path to the WinGet description lookup used for app Descriptions (dot-sourced below: functions only)
 $WinGetDescriptionScriptPath = "$RepoRoot\Other_Tools\Get-WinGetAppDescription.ps1"
+# Standard icon for every printer published to Intune (plain on purpose: users see "a printer")
+$PrinterIconPath = "$RepoRoot\Templates\Printer-Icon.png"
 
 # ---------------------------------------------------------------------------
 # Optional Intune upload feature (spec 3): loaded at SCRIPT scope, functions only
@@ -961,6 +963,7 @@ function Printer--InTune-Setup{
         UninstallCommandFile    = $UninstallCommandTXT
         DetectionScriptFile     = $DetectPrinterScript
         AllowAvailableUninstall = $true
+        IconFile                = $(if (Test-Path -LiteralPath $PrinterIconPath) { $PrinterIconPath } else { "" })
     }
 
     Clear
@@ -1016,7 +1019,11 @@ Write-LogBlock "`n$PotentialPrinterInTuneName`n"
     Write-LogBlock "`n$CurrentGitVer`n"
     
     Write-Log "     - Category: Printers (Create this category if you do not already have, it will take some time to show up: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps)"
-    Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
+    if (Test-Path -LiteralPath $PrinterIconPath) {
+        Write-Log "     - LOGO: Select image and upload the standard printer icon: $PrinterIconPath"
+    } else {
+        Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
+    }
     Write-Log ""   
     Pause
     Write-Log ""   
@@ -5184,6 +5191,7 @@ Function Show-IntuneUploadReview {
         Write-Log "VERSION:   $Version"
         Write-Log "PACKAGE:   $($Meta.PackageFileName) (setup file: $($Meta.SetupFilePath))"
         Write-Log "ALLOW AVAILABLE UNINSTALL: $($Meta.AllowAvailableUninstall)"
+        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.IconFile)) { Write-Log "ICON:      $($Meta.IconFile)" }
         Write-Log ""
         Write-Log "DESCRIPTION (shown to users in the Company Portal):"
         Write-Host ""
@@ -5301,6 +5309,7 @@ Function Invoke-InTuneAutoUpload {
             Category                = [string]$Metadata.Category
             Notes                   = [string]$Metadata.Notes
             AllowAvailableUninstall = [bool]$Metadata.AllowAvailableUninstall
+            IconFile                = [string]$Metadata.IconFile
         }
 
         $HashedFiles = @($Common.IntuneWinPath, $Common.InstallCommandFile, $Common.UninstallCommandFile, $Common.DetectionScriptFile)

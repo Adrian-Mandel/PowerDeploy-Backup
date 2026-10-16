@@ -110,7 +110,7 @@ function ConvertTo-PDUploaderRunArgument {
 
     $valueNames   = @('IntuneWinPath', 'DisplayName', 'Description', 'Publisher',
                       'InstallCommandFile', 'UninstallCommandFile', 'DetectionScriptFile',
-                      'AppVersion', 'Category', 'Notes', 'CredentialPath',
+                      'AppVersion', 'Category', 'Notes', 'CredentialPath', 'IconFile',
                       'LogDirectory', 'TempDirectory')
     $listNames    = @('RequiredGroups', 'AvailableGroups')
     $switchNames  = @('DryRun', 'AllowDuplicateName', 'NoRollback')
@@ -428,6 +428,8 @@ function Start-PDIntunePreflight {
         [switch]$AllowDuplicateName,
         [switch]$NoRollback,
         [string]$TempDirectory,
+        # Optional PNG shown as the app's icon. Cosmetic: a problem with it is a warning, never a failure.
+        [string]$IconFile,
         [string]$Stage = 'Preflight'
     )
 
@@ -535,6 +537,29 @@ function Start-PDIntunePreflight {
 
     $displayVersion = Get-PDGraphTrimmedText -Value $AppVersion -TreatNotApplicableAsMissing
 
+    # --- Icon (optional, cosmetic) ----------------------------------------------------------
+    # A missing or invalid icon is a warning and the upload goes on without one: an icon must
+    # never be the reason a printer or app is not published.
+    $iconPath  = $null
+    $iconBytes = 0
+    $iconRequested = Get-PDGraphTrimmedText -Value $IconFile
+    if (-not [string]::IsNullOrWhiteSpace($iconRequested)) {
+        try {
+            $iconFull = (Resolve-Path -LiteralPath $iconRequested -ErrorAction Stop).ProviderPath
+            $head = New-Object byte[] 8
+            $iconStream = [System.IO.File]::OpenRead($iconFull)
+            try { $read = $iconStream.Read($head, 0, 8); $iconBytes = [long]$iconStream.Length } finally { $iconStream.Dispose() }
+            $pngSignature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+            if (($read -ne 8) -or (@(Compare-Object $head $pngSignature -SyncWindow 0).Count -ne 0)) {
+                $warnings += ("The icon '{0}' is not a PNG file, so the app will be created without an icon." -f $iconRequested)
+            } else {
+                $iconPath = $iconFull
+            }
+        } catch {
+            $warnings += ("The icon '{0}' could not be read, so the app will be created without an icon." -f $iconRequested)
+        }
+    }
+
     $reviewMetadata = [pscustomobject]@{
         DisplayName             = $name
         Description             = $description
@@ -548,6 +573,7 @@ function Start-PDIntunePreflight {
         PackageEncryptedBytes   = $package.PayloadBytes
         PackageToolVersion      = $package.ToolVersion
         DetectionBytes          = $detection.Bytes
+        IconFile                = $(if ($null -ne $iconPath) { Split-Path -Leaf $iconPath } else { $null })
         InstallationDefaults    = (Get-PDInstallationDefaultsReview)
         GroupAssignmentSummary  = $(if (@($resolvedGroups).Count -eq 0) { 'No assignments' } else { ('{0} assignment(s)' -f @($resolvedGroups).Count) })
     }
@@ -583,6 +609,7 @@ function Start-PDIntunePreflight {
         TempDirectoryOwned       = $package.TempDirectoryOwned
         NoRollback               = [bool]$NoRollback
         AllowDuplicateName       = [bool]$AllowDuplicateName
+        IconPath                 = $iconPath
     }
 
     # --- 7. A dry run stops here ----------------------------------------------------------
@@ -1041,6 +1068,26 @@ function Invoke-PDIntuneUploadWriteStages {
             return $null
         }
 
+        # --- 7b. Icon (best effort) --------------------------------------------------------
+        # Its own PATCH, after publishing: if Intune refuses the icon the app is still published
+        # and assigned, and the operator gets a warning instead of a rollback.
+        if (-not [string]::IsNullOrWhiteSpace([string]$Preflight.IconPath)) {
+            try {
+                $iconValue = [System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes([string]$Preflight.IconPath))
+                $null = Invoke-PDGraphRequest -Method Patch -Uri $appPath `
+                                             -Body @{
+                                                 '@odata.type' = ('#' + $script:PDGraph.Win32AppCast)
+                                                 largeIcon     = @{ '@odata.type' = '#microsoft.graph.mimeContent'; type = 'image/png'; value = $iconValue }
+                                             } `
+                                             -AuthContext $auth -RetryMode 'Write' `
+                                             -Stage 'Icon' -Description 'set the app icon'
+                Write-PDUploadLog -Message ("Set the app icon from {0}." -f (Split-Path -Leaf ([string]$Preflight.IconPath))) -Level 'INFO'
+            } catch {
+                $iconInfo = Get-PDGraphErrorInfo -ErrorRecord $_
+                $warnings += ("The app was published, but its icon could not be set ({0}). Add it in the Intune portal if you want one." -f [string]$iconInfo.Message)
+            }
+        }
+
         # --- 8. Category (never created, only associated) -------------------------------
         $categoryId = $null
         if ($null -ne $Preflight.CategoryResult) {
@@ -1191,7 +1238,9 @@ function Invoke-PDIntuneUpload {
         [switch]$DryRun,
         [switch]$AllowDuplicateName,
         [switch]$NoRollback,
-        [string]$TempDirectory
+        [string]$TempDirectory,
+        # Optional PNG shown as the app's icon. Cosmetic: a problem with it is a warning, never a failure.
+        [string]$IconFile
     )
 
     Initialize-PDUploaderHelpers
@@ -1229,7 +1278,8 @@ function Invoke-PDIntuneUpload {
             -DryRun:$DryRun `
             -AllowDuplicateName:$AllowDuplicateName `
             -NoRollback:$NoRollback `
-            -TempDirectory $runTempDirectory
+            -TempDirectory $runTempDirectory `
+            -IconFile $IconFile
 
         if ($preflight.ContainsKey('TempDirectoryOwned')) { $tempWasOurs = ($tempWasOurs -or [bool]$preflight.TempDirectoryOwned) }
 
