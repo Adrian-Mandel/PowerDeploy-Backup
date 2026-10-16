@@ -1091,7 +1091,7 @@ Function WindowsApp--InTune-Setup{
     # SearchJSONForApp copies the chosen entry's properties into global scope and never clears
     # the ones an entry does not have, so an app without an AppDescription would inherit the
     # previous selection's. Clear the optional fields first (spec I04).
-    foreach ($StaleField in @('AppDescription', 'Category', 'Verified', 'Publisher', 'PackagedVersion', 'Version', 'PreRequisites', 'DisplayName', 'WinGetID')) {
+    foreach ($StaleField in @('AppDescription', 'Category', 'Verified', 'Publisher', 'PackagedVersion', 'Version', 'PreRequisites', 'DisplayName', 'WinGetID', 'InformationUrl', 'PrivacyUrl', 'IconUrl', 'IconFile')) {
         Remove-Variable -Name $StaleField -Scope Global -ErrorAction SilentlyContinue
         Remove-Variable -Name $StaleField -Scope Script -ErrorAction SilentlyContinue
     }
@@ -1479,10 +1479,7 @@ Function WindowsApp--InTune-Setup{
     Write-Log ""    
 
     Write-Log "Next we will automatically create the install/uninstall commands/scripts."
-
-    Write-Log ""    
-    Pause
-    Write-Log ""   
+    Write-Log ""
 
 
 
@@ -1893,7 +1890,8 @@ Function WindowsApp--InTune-Setup{
     # is missing from the catalog.
     $WinGetLookup = $null
     if (([string]$InstallMethod -eq 'WinGet') -and -not (Test-IntuneFieldMissing -Value $WinGetID) -and
-        ((Test-IntuneFieldMissing -Value $AppDescription) -or (Test-IntuneFieldMissing -Value $CatalogPublisher))) {
+        ((Test-IntuneFieldMissing -Value $AppDescription) -or (Test-IntuneFieldMissing -Value $CatalogPublisher) -or
+         (Test-IntuneFieldMissing -Value $InformationUrl) -or (Test-IntuneFieldMissing -Value $PrivacyUrl))) {
         $WinGetLookup = Invoke-IntuneWinGetLookup -WinGetID $WinGetID
     }
 
@@ -1905,6 +1903,24 @@ Function WindowsApp--InTune-Setup{
     $AppPublisherResult = Get-IntuneAppPublisherText -CatalogPublisher $CatalogPublisher -InstallMethod $InstallMethod -Lookup $WinGetLookup
     $publisher = [string]$AppPublisherResult.Text
     Write-Log "Publisher: $publisher (source: $($AppPublisherResult.Source))" "INFO2"
+
+    # Company Portal links: catalog InformationUrl / PrivacyUrl, else what WinGet reports.
+    $AppLinks = Get-IntuneAppLinks -CatalogInformationUrl $InformationUrl -CatalogPrivacyUrl $PrivacyUrl -InstallMethod $InstallMethod -Lookup $WinGetLookup
+    if ($AppLinks.InformationUrl) { Write-Log "Information URL: $($AppLinks.InformationUrl) (source: $($AppLinks.InformationSource))" "INFO2" }
+    if ($AppLinks.PrivacyUrl)     { Write-Log "Privacy URL: $($AppLinks.PrivacyUrl) (source: $($AppLinks.PrivacySource))" "INFO2" }
+
+    # App icon: a repo file (IconFile, relative to the repo root) wins over a download link (IconUrl).
+    $AppIconFile = ""
+    if (-not (Test-IntuneFieldMissing -Value $IconFile)) {
+        $AppIconFile = [string]$IconFile
+        if (-not [System.IO.Path]::IsPathRooted($AppIconFile)) { $AppIconFile = Join-Path $RepoRoot $AppIconFile }
+        if (-not (Test-Path -LiteralPath $AppIconFile)) {
+            Write-Log "The catalog IconFile '$IconFile' was not found at $AppIconFile; no icon will be used." "WARNING"
+            $AppIconFile = ""
+        }
+    }
+    $AppIconUrl = ""
+    if ([string]::IsNullOrWhiteSpace($AppIconFile) -and -not (Test-IntuneFieldMissing -Value $IconUrl)) { $AppIconUrl = [string]$IconUrl }
 
     $AppNotesFields = [ordered]@{
         'InstallMethod'    = $InstallMethod
@@ -1932,6 +1948,10 @@ Function WindowsApp--InTune-Setup{
         UninstallCommandFile    = $UninstallCommandTXT
         DetectionScriptFile     = $DetectAppScript
         AllowAvailableUninstall = $false
+        InformationUrl          = [string]$AppLinks.InformationUrl
+        PrivacyUrl              = [string]$AppLinks.PrivacyUrl
+        IconFile                = $AppIconFile
+        IconUrl                 = $AppIconUrl
     }
 
     Write-Log ""
@@ -2000,7 +2020,22 @@ Function WindowsApp--InTune-Setup{
     Write-Host "`n"
     If($Category -ne "" -and $Category -ne $null) {Write-LogBlock "$Category"} else {Write-LogBlock "Currently empty. Choose an existing category or create a new one here: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps"}
     Write-Host "`n"
-    Write-Log "     - LOGO: Optional - You could create something with Canva using your organization logo, but standardize it"
+    if ($AppLinks.InformationUrl) { Write-Log "     - INFORMATION URL:"; Write-LogBlock "`n$($AppLinks.InformationUrl)`n" }
+    if ($AppLinks.PrivacyUrl)     { Write-Log "     - PRIVACY URL:";     Write-LogBlock "`n$($AppLinks.PrivacyUrl)`n" }
+    if ($AppIconFile) {
+        Write-Log "     - LOGO: Select image and upload: $AppIconFile"
+    } elseif ($AppIconUrl) {
+        # Download it for the operator, into Setup's Temp folder (beside the repo, never inside it).
+        $GuidedIcon = Save-IntuneIconFromUrl -Url $AppIconUrl -Directory "$WorkingDirectory\Temp\Intune_Icons"
+        if ($GuidedIcon.Path) {
+            Write-Log "     - LOGO: Select image and upload (downloaded from the catalog's IconUrl): $($GuidedIcon.Path)"
+        } else {
+            Write-Log "     $($GuidedIcon.Warning)" "WARNING"
+            Write-Log "     - LOGO: Download this image yourself and upload it: $AppIconUrl"
+        }
+    } else {
+        Write-Log "     - LOGO: Optional - You could create something with Canva using your organization logo, but standardize it"
+    }
     Write-Log "     - Everything else on this page is up to your discretion."
     Write-Log ""
     Pause   
@@ -5115,6 +5150,84 @@ Function Get-IntuneAppDescriptionText {
     return @{ Text = 'N/A'; Source = 'none'; Warning = ("No WinGet description was found for '{0}' ({1}: {2}). Using N/A." -f $WinGetID, [string]$Lookup.Status, [string]$Lookup.Message) }
 }
 
+Function Get-IntuneAppLinks {
+    param(
+        [AllowNull()][string]$CatalogInformationUrl,
+        [AllowNull()][string]$CatalogPrivacyUrl,
+        [AllowNull()][string]$InstallMethod,
+        [AllowNull()][object]$Lookup
+    )
+
+    # Catalog values win; for WinGet apps the gaps are filled from the same winget show lookup.
+    $Result = @{ InformationUrl = ''; InformationSource = 'none'; PrivacyUrl = ''; PrivacySource = 'none' }
+    $FromWinGet = ([string]$InstallMethod -eq 'WinGet') -and ($null -ne $Lookup)
+
+    if (-not (Test-IntuneFieldMissing -Value $CatalogInformationUrl)) { $Result.InformationUrl = $CatalogInformationUrl; $Result.InformationSource = 'JSON InformationUrl' }
+    elseif ($FromWinGet -and -not (Test-IntuneFieldMissing -Value $Lookup.Homepage)) { $Result.InformationUrl = [string]$Lookup.Homepage; $Result.InformationSource = 'WinGet' }
+
+    if (-not (Test-IntuneFieldMissing -Value $CatalogPrivacyUrl)) { $Result.PrivacyUrl = $CatalogPrivacyUrl; $Result.PrivacySource = 'JSON PrivacyUrl' }
+    elseif ($FromWinGet -and -not (Test-IntuneFieldMissing -Value $Lookup.PrivacyUrl)) { $Result.PrivacyUrl = [string]$Lookup.PrivacyUrl; $Result.PrivacySource = 'WinGet' }
+
+    return $Result
+}
+
+Function Test-IntuneIconBytes {
+    param([AllowNull()][byte[]]$Bytes)
+
+    # 'png' | 'jpeg' | $null, from the file's own signature (never from its name or the server).
+    if ($null -eq $Bytes -or $Bytes.Length -lt 8) { return $null }
+    if (($Bytes[0] -eq 0x89) -and ($Bytes[1] -eq 0x50) -and ($Bytes[2] -eq 0x4E) -and ($Bytes[3] -eq 0x47) -and
+        ($Bytes[4] -eq 0x0D) -and ($Bytes[5] -eq 0x0A) -and ($Bytes[6] -eq 0x1A) -and ($Bytes[7] -eq 0x0A)) { return 'png' }
+    if (($Bytes[0] -eq 0xFF) -and ($Bytes[1] -eq 0xD8) -and ($Bytes[2] -eq 0xFF)) { return 'jpeg' }
+    return $null
+}
+
+Function Save-IntuneIconFromUrl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [int]$MaxBytes = 1048576,
+        [int]$TimeoutSec = 30,
+        # Where to keep the download. Default: a throwaway folder in the system temp (automatic
+        # mode deletes it). Guided mode passes Setup's own Temp folder, beside - never inside - the repo.
+        [string]$Directory
+    )
+
+    # HTTPS only, bounded, no credentials sent, and the content must really be a PNG or JPEG.
+    # Returns @{ Path; Warning } - Path is empty when no usable icon was downloaded.
+    $Parsed = $null
+    if (-not ([System.Uri]::TryCreate($Url, [System.UriKind]::Absolute, [ref]$Parsed)) -or ($Parsed.Scheme -ne 'https')) {
+        return @{ Path = ''; Warning = "The catalog IconUrl '$Url' is not an https link, so no icon will be used." }
+    }
+
+    $Folder = Join-Path ([System.IO.Path]::GetTempPath()) ('PowerDeploy-Icon-' + [guid]::NewGuid().ToString('N'))
+    if (-not [string]::IsNullOrWhiteSpace($Directory)) { $Folder = Join-Path $Directory ((Get-Date -Format 'yyyyMMdd_HHmmss') + '_' + [guid]::NewGuid().ToString('N').Substring(0, 8)) }
+    try {
+        New-Item -ItemType Directory -Path $Folder -Force | Out-Null
+        $Download = Join-Path $Folder 'download.bin'
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $Url -OutFile $Download -UseBasicParsing -TimeoutSec $TimeoutSec -MaximumRedirection 5 -ErrorAction Stop
+
+        $Length = (Get-Item -LiteralPath $Download).Length
+        if ($Length -gt $MaxBytes) {
+            Remove-Item -LiteralPath $Folder -Recurse -Force -ErrorAction SilentlyContinue
+            return @{ Path = ''; Warning = ("The icon at '{0}' is {1:N0} KB, larger than the {2:N0} KB limit, so no icon will be used." -f $Url, ($Length / 1KB), ($MaxBytes / 1KB)) }
+        }
+
+        $Kind = Test-IntuneIconBytes -Bytes ([System.IO.File]::ReadAllBytes($Download))
+        if (-not $Kind) {
+            Remove-Item -LiteralPath $Folder -Recurse -Force -ErrorAction SilentlyContinue
+            return @{ Path = ''; Warning = "The file at '$Url' is not a PNG or JPEG image, so no icon will be used." }
+        }
+
+        $Final = Join-Path $Folder ('icon.' + $Kind)
+        Move-Item -LiteralPath $Download -Destination $Final -Force
+        return @{ Path = $Final; Warning = $null }
+    } Catch {
+        Remove-Item -LiteralPath $Folder -Recurse -Force -ErrorAction SilentlyContinue
+        return @{ Path = ''; Warning = "The icon could not be downloaded from '$Url' ($($_.Exception.Message)), so no icon will be used." }
+    }
+}
+
 Function Get-IntuneAppPublisherText {
     param(
         [AllowNull()][string]$CatalogPublisher,
@@ -5192,6 +5305,8 @@ Function Show-IntuneUploadReview {
         Write-Log "PACKAGE:   $($Meta.PackageFileName) (setup file: $($Meta.SetupFilePath))"
         Write-Log "ALLOW AVAILABLE UNINSTALL: $($Meta.AllowAvailableUninstall)"
         if (-not [string]::IsNullOrWhiteSpace([string]$Meta.IconFile)) { Write-Log "ICON:      $($Meta.IconFile)" }
+        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.InformationUrl)) { Write-Log "INFO URL:  $($Meta.InformationUrl)" }
+        if (-not [string]::IsNullOrWhiteSpace([string]$Meta.PrivacyUrl)) { Write-Log "PRIVACY:   $($Meta.PrivacyUrl)" }
         Write-Log ""
         Write-Log "DESCRIPTION (shown to users in the Company Portal):"
         Write-Host ""
@@ -5266,6 +5381,8 @@ Function Invoke-InTuneAutoUpload {
         [Parameter(Mandatory = $true)][hashtable]$Metadata
     )
 
+    $DownloadedIconPath = $null
+
     try {
 
         Clear
@@ -5310,6 +5427,21 @@ Function Invoke-InTuneAutoUpload {
             Notes                   = [string]$Metadata.Notes
             AllowAvailableUninstall = [bool]$Metadata.AllowAvailableUninstall
             IconFile                = [string]$Metadata.IconFile
+            InformationUrl          = [string]$Metadata.InformationUrl
+            PrivacyUrl              = [string]$Metadata.PrivacyUrl
+        }
+
+        # An icon given as a link is downloaded here, on this PC, only for automatic mode, and the
+        # copy is deleted when this function finishes. A failed download just means no icon.
+        if ([string]::IsNullOrWhiteSpace($Common.IconFile) -and -not [string]::IsNullOrWhiteSpace([string]$Metadata.IconUrl)) {
+            $Downloaded = Save-IntuneIconFromUrl -Url ([string]$Metadata.IconUrl)
+            if ($Downloaded.Path) {
+                $Common.IconFile = $Downloaded.Path
+                $DownloadedIconPath = $Downloaded.Path
+                Write-Log "Downloaded the app icon from $($Metadata.IconUrl)" "INFO2"
+            } else {
+                Write-Log $Downloaded.Warning "WARNING"
+            }
         }
 
         $HashedFiles = @($Common.IntuneWinPath, $Common.InstallCommandFile, $Common.UninstallCommandFile, $Common.DetectionScriptFile)
@@ -5443,6 +5575,12 @@ Function Invoke-InTuneAutoUpload {
         Write-Log "Continuing with the guided manual setup." 'WARNING'
         Pause
         return $false
+
+    } Finally {
+
+        if ($DownloadedIconPath -and (Test-Path -LiteralPath $DownloadedIconPath)) {
+            Remove-Item -LiteralPath (Split-Path -Parent $DownloadedIconPath) -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
     }
 }

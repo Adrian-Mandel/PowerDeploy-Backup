@@ -2373,6 +2373,8 @@ function Reset-PDM4Scenario {
         PublishPatch      = $null
         IconPatch         = $null
         IconRefused       = $false
+        LinksPatch        = $null
+        LinksRefused      = $false
         Deleted           = @()
     }
 
@@ -2545,6 +2547,13 @@ function Reset-PDM4Scenario {
                 $script:M4.IconPatch = $patchBody
                 if ($script:M4.IconRefused) {
                     return (New-PDMockJsonResponse -Status 400 -Json (@{ error = @{ code = 'BadRequest'; message = 'The icon was refused by the test scenario.' } } | ConvertTo-Json -Compress))
+                }
+                return (New-PDMockJsonResponse -Status 204 -Json '')
+            }
+            if (($patchBody -like '*informationUrl*') -or ($patchBody -like '*privacyInformationUrl*')) {
+                $script:M4.LinksPatch = $patchBody
+                if ($script:M4.LinksRefused) {
+                    return (New-PDMockJsonResponse -Status 400 -Json (@{ error = @{ code = 'BadRequest'; message = 'The links were refused by the test scenario.' } } | ConvertTo-Json -Compress))
                 }
                 return (New-PDMockJsonResponse -Status 204 -Json '')
             }
@@ -2750,7 +2759,9 @@ function Invoke-PDM4Upload {
         [string[]]$AvailableGroups = @(),
         [switch]$AllowDuplicateName,
         [switch]$NoRollback,
-        [string]$IconFile
+        [string]$IconFile,
+        [string]$InformationUrl,
+        [string]$PrivacyUrl
     )
 
     $arguments = @{
@@ -2771,6 +2782,8 @@ function Invoke-PDM4Upload {
     if ($AllowDuplicateName) { $arguments['AllowDuplicateName'] = [switch]::Present }
     if ($NoRollback)         { $arguments['NoRollback']         = [switch]::Present }
     if ($PSBoundParameters.ContainsKey('IconFile')) { $arguments['IconFile'] = $IconFile }
+    if ($PSBoundParameters.ContainsKey('InformationUrl')) { $arguments['InformationUrl'] = $InformationUrl }
+    if ($PSBoundParameters.ContainsKey('PrivacyUrl'))     { $arguments['PrivacyUrl']     = $PrivacyUrl }
 
     return (Invoke-PDIntuneUpload @arguments)
 }
@@ -3278,13 +3291,48 @@ Add-TestCase 'U08' 'the app icon is a best-effort PATCH after publishing that ne
     $bad = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-bad') -IconFile $notPng
     Assert-True $bad.Success 'an invalid icon file does not fail the upload'
     Assert-True ($null -eq $script:M4.IconPatch) 'no icon PATCH is sent for a non-PNG file'
-    Assert-Like '*not a PNG*' ((@($bad.Warnings)) -join ' | ') 'and it says why'
+    Assert-Like '*not a PNG or JPEG*' ((@($bad.Warnings)) -join ' | ') 'and it says why'
 
     # No icon requested: no PATCH at all.
     Reset-PDM4Scenario
     $none = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-none')
     Assert-True $none.Success 'plain upload still fine'
     Assert-True ($null -eq $script:M4.IconPatch) 'no icon, no icon PATCH'
+}
+
+Add-TestCase 'U09' 'Company Portal links are a best-effort PATCH; JPEG icons are sent as image/jpeg' {
+    # Links set: one PATCH carrying both, separate from publish and icon.
+    Reset-PDM4Scenario
+    $result = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'links-ok') -InformationUrl 'https://7-zip.org/download.html' -PrivacyUrl 'http://go.microsoft.com/fwlink/?LinkID=316999'
+    Assert-True $result.Success ("links do not change the outcome: {0}" -f $result.Message)
+    $links = $script:M4.LinksPatch | ConvertFrom-Json
+    Assert-Equal 'https://7-zip.org/download.html' ([string]$links.informationUrl) 'information URL sent'
+    Assert-Equal 'http://go.microsoft.com/fwlink/?LinkID=316999' ([string]$links.privacyInformationUrl) 'http links are accepted'
+    Assert-NotLike '*informationUrl*' ([string]$script:M4.PublishPatch) 'the publish PATCH does not carry the links'
+    Assert-Equal 'https://7-zip.org/download.html' ([string]$result.ReviewMetadata.InformationUrl) 'the review shows the link'
+
+    # A link that is not http(s) is left out with a warning; nothing is sent when none remain.
+    Reset-PDM4Scenario
+    $bad = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'links-bad') -InformationUrl 'javascript:alert(1)' -PrivacyUrl 'N/A'
+    Assert-True $bad.Success 'a bad link never fails the upload'
+    Assert-True ($null -eq $script:M4.LinksPatch) 'no links PATCH when no valid link remains'
+    Assert-Like '*not an http(s) link*' ((@($bad.Warnings)) -join ' | ') 'the operator is told'
+
+    # Refused by Intune: still published, warning, no rollback.
+    Reset-PDM4Scenario
+    $script:M4.LinksRefused = $true
+    $refused = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'links-refused') -InformationUrl 'https://example.invalid/'
+    Assert-True $refused.Success 'a refused link does not fail the upload'
+    Assert-Equal 0 @($script:M4.Deleted).Count 'nothing deleted'
+    Assert-Like '*links could not be set*' ((@($refused.Warnings)) -join ' | ') 'warning shown'
+
+    # JPEG icon: detected by its bytes, sent as image/jpeg.
+    Reset-PDM4Scenario
+    $jpeg = Join-Path $tempRoot 'icon.jpg'
+    [System.IO.File]::WriteAllBytes($jpeg, [byte[]](0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01))
+    $jpegResult = Invoke-PDM4Upload -Inputs (New-PDM4InputSet -Case 'icon-jpeg') -IconFile $jpeg
+    Assert-True $jpegResult.Success 'JPEG icon upload succeeds'
+    Assert-Equal 'image/jpeg' ([string](($script:M4.IconPatch | ConvertFrom-Json).largeIcon.type)) 'sent as image/jpeg'
 }
 
 Add-TestCase 'U07a' 'An assignment read-back difference is never reported as success' {
@@ -4674,6 +4722,27 @@ Add-TestCase 'D07f' 'Parser and result keep the Publisher field, even when there
     Assert-True (-not $result.Found) 'not Found'
     Assert-Equal 'Example Corp' ([string]$result.Publisher) 'publisher survives a missing description, trimmed'
     Assert-True ($null -eq (New-PDWinGetDescriptionResult -Status 'Unavailable' -Publisher '  ').Publisher) 'a blank publisher is null'
+}
+
+Add-TestCase 'D07g' 'Parser reads Homepage and Privacy Url after the description, without tripping on later labels' {
+    $vscode = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-Microsoft.VisualStudioCode.txt') -ExpectedId 'Microsoft.VisualStudioCode'
+    Assert-Equal 'https://code.visualstudio.com/' ([string]$vscode.Homepage) 'homepage, listed after the description'
+    Assert-Equal 'https://privacy.microsoft.com/' ([string]$vscode.PrivacyUrl) 'privacy URL'
+    Assert-Like 'Microsoft Visual Studio Code is a code editor*' $vscode.Description 'the description is unchanged'
+
+    $portal = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'msstore-9WZDNCRFJ3PZ.txt') -ExpectedId '9WZDNCRFJ3PZ'
+    Assert-Equal 'http://go.microsoft.com/fwlink/?LinkId=273865' ([string]$portal.Homepage) 'no Homepage: falls back to Publisher Url'
+
+    $sevenZip = ConvertFrom-PDWinGetShowOutput -Text (Get-PDWinGetFixture 'winget-7zip.7zip.txt') -ExpectedId '7zip.7zip'
+    Assert-True ($null -eq $sevenZip.PrivacyUrl) 'no Privacy Url: null, not a guess'
+
+    # An unknown label right after the description is still refused (the boundary would be a
+    # guess, see D07c); one further down only gets skipped while the links are read.
+    $newer = "Found Example App [Example.App]`r`nPublisher: Example Corp`r`nDescription: Does things.`r`nHomepage: https://example.invalid/`r`nShiny New Field: value`r`nPrivacy Url: https://example.invalid/privacy`r`n"
+    $parsed = ConvertFrom-PDWinGetShowOutput -Text $newer -ExpectedId 'Example.App'
+    Assert-Equal 'Found' $parsed.Status 'an unknown label further down does not break the lookup'
+    Assert-Equal 'Does things.' $parsed.Description 'description intact'
+    Assert-Equal 'https://example.invalid/privacy' ([string]$parsed.PrivacyUrl) 'links after the unknown label are still read'
 }
 
 Add-TestCase 'D07b' 'Parser preserves multiline descriptions and stops at the next top-level field' {

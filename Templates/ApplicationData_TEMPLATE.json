@@ -3,7 +3,8 @@
   {
     "ApplicationName": "Visual Studio Code",
     "InstallMethod": "WinGet",
-    "WinGetID": "Microsoft.VisualStudioCode"
+    "WinGetID": "Microsoft.VisualStudioCode",
+    "IconUrl": "https://code.visualstudio.com/assets/branding/code-stable.png"
   },
   {
     "ApplicationName": "Microsoft Office365 -- Word-Excel-PowerPoint Only",

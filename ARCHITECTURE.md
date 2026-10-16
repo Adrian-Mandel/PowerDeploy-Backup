@@ -150,7 +150,9 @@ Top level: `{ "Applications": [ <entry>, ... ] }`
 | `UninstallType` | no | `All` (try every method until one verifies), `Remove-App-WinGet`, or the literal name of any `Remove-App-*` function in `General_Uninstaller.ps1`. |
 | `PreRequisites` | no | Comma-separated list of other `ApplicationName`s, installed first. **Resolved one level deep only** — prerequisites of prerequisites are not installed. |
 | `Version` | no | Exact version for WinGet install/detection. |
-| `AppDescription`, `Publisher`, `Category`, `PackagedVersion` | no (Setup only) | Prefill the Intune app's Description / Publisher / Category / Version in the app wizard. `Publisher` defaults to `PowerDeploy`; the Version prefill is `PackagedVersion`, else `Version`. Not read by any installer. |
+| `AppDescription`, `Publisher`, `Category`, `PackagedVersion` | no (Setup only) | Prefill the Intune app's Description / Publisher / Category / Version in the app wizard. For WinGet apps a missing `AppDescription` / `Publisher` is filled from `winget show`; `Publisher` otherwise defaults to `PowerDeploy`. The Version is `PackagedVersion`, else `Version`, else the source commit. Not read by any installer. |
+| `InformationUrl`, `PrivacyUrl` | no (Setup only) | The Company Portal "more information" and privacy links (http/https). For WinGet apps, missing ones are filled from `winget show` (`Homepage`, else `Publisher Url`; `Privacy Url`). Set in a best-effort step after publishing. |
+| `IconFile`, `IconUrl` | no (Setup only) | App icon, PNG or JPEG. `IconFile` is a repo-relative path and wins; `IconUrl` must be `https` and is downloaded on the admin workstation at publish time (1 MB limit, content checked). A problem with either is a warning and the app is published without an icon. |
 | `Verified` | no (Setup only) | Free text printed in the generated Intune description. |
 
 **Per-method fields:**

@@ -78,10 +78,15 @@ function New-PDWinGetDescriptionResult {
         [AllowNull()]$Source = $null,
         [AllowNull()]$PackageId = $null,
         # Kept even when no description was found: the publisher alone is still useful.
-        [AllowNull()]$Publisher = $null
+        [AllowNull()]$Publisher = $null,
+        # Links, kept like the publisher even when no description was found.
+        [AllowNull()]$Homepage = $null,
+        [AllowNull()]$PrivacyUrl = $null
     )
 
     if ([string]::IsNullOrWhiteSpace([string]$Publisher)) { $Publisher = $null } else { $Publisher = ([string]$Publisher).Trim() }
+    if ([string]::IsNullOrWhiteSpace([string]$Homepage))  { $Homepage  = $null } else { $Homepage  = ([string]$Homepage).Trim() }
+    if ([string]::IsNullOrWhiteSpace([string]$PrivacyUrl)) { $PrivacyUrl = $null } else { $PrivacyUrl = ([string]$PrivacyUrl).Trim() }
 
     if ($Status -eq 'Found') {
         $Description = [string]$Description
@@ -99,6 +104,8 @@ function New-PDWinGetDescriptionResult {
         Source      = $Source
         PackageId   = $PackageId
         Publisher   = $Publisher
+        Homepage    = $Homepage
+        PrivacyUrl  = $PrivacyUrl
         Status      = $Status
         Message     = $Message
     }
@@ -237,7 +244,7 @@ function ConvertFrom-PDWinGetShowOutput {
         'Description:' line plus its indented continuation lines, ending at the next top-level
         field. Only stdout should be passed in; stderr is never a description.
 
-        Returns { Status; Description; PackageId; Publisher; Message } where Status is Found, NotFound,
+        Returns { Status; Description; PackageId; Publisher; Homepage; PrivacyUrl; Message } where Status is Found, NotFound,
         or UnrecognizedOutput. Unknown or localized labels, or an unrecognized field boundary,
         are UnrecognizedOutput - never a guess.
 
@@ -253,8 +260,8 @@ function ConvertFrom-PDWinGetShowOutput {
     )
 
     $fail = {
-        param([string]$Status, [string]$Message, $Publisher = $null)
-        [pscustomobject]@{ Status = $Status; Description = $null; PackageId = $null; Publisher = $Publisher; Message = $Message }
+        param([string]$Status, [string]$Message, $Publisher = $null, $Homepage = $null, $PrivacyUrl = $null)
+        [pscustomobject]@{ Status = $Status; Description = $null; PackageId = $null; Publisher = $Publisher; Homepage = $Homepage; PrivacyUrl = $PrivacyUrl; Message = $Message }
     }
 
     if ([string]::IsNullOrWhiteSpace($Text)) { return (& $fail 'UnrecognizedOutput' 'winget produced no output.') }
@@ -308,6 +315,10 @@ function ConvertFrom-PDWinGetShowOutput {
 
     $descriptionLines = $null
     $publisher = $null
+    $homepage = $null
+    $publisherUrl = $null
+    $privacyUrl = $null
+    $afterDescription = $false
     $sawKnownLabel = $false
     $i = $headerIndex + 1
     while ($i -lt $lines.Count) {
@@ -318,9 +329,23 @@ function ConvertFrom-PDWinGetShowOutput {
 
         $field = [regex]::Match($line, $labelPattern)
         if ((-not $field.Success) -or ($known -notcontains $field.Groups['label'].Value)) {
+            # Past the description only the link fields are read, so an unfamiliar label there
+            # (a newer winget) is skipped instead of failing a lookup that already succeeded.
+            if ($afterDescription) { $i++; continue }
             return (& $fail 'UnrecognizedOutput' ("Unrecognized winget field line: '{0}'." -f (Get-PDWinGetShortText -Text $line -MaxLength 60)))
         }
         $sawKnownLabel = $true
+
+        # One-line link fields (Homepage and Privacy Url are listed after the description).
+        $linkValue = ([string]$field.Groups['value'].Value).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($linkValue)) {
+            switch -CaseSensitive ($field.Groups['label'].Value) {
+                'Homepage'      { if ($null -eq $homepage)     { $homepage = $linkValue } }
+                'Publisher Url' { if ($null -eq $publisherUrl) { $publisherUrl = $linkValue } }
+                'Privacy Url'   { if ($null -eq $privacyUrl)   { $privacyUrl = $linkValue } }
+            }
+        }
+        if ($afterDescription) { $i++; continue }
 
         # Publisher is a one-line field listed before Description in every captured output.
         if ($field.Groups['label'].Value -ceq 'Publisher') {
@@ -359,24 +384,32 @@ function ConvertFrom-PDWinGetShowOutput {
                 if ($c.Trim().Length -eq 0) { $descriptionLines.Add(''); continue }
                 $descriptionLines.Add($c.Substring($indent))
             }
-            break
+            # Keep reading the remaining top-level fields for the links.
+            $afterDescription = $true
+            $i = $j
+            continue
         }
         $i++
     }
 
+    # Information link: the package homepage, else the publisher's site.
+    if ($null -eq $homepage) { $homepage = $publisherUrl }
+
     if ($null -eq $descriptionLines) {
-        if ($sawKnownLabel) { return (& $fail 'NotFound' 'The package has no Description field.' $publisher) }
+        if ($sawKnownLabel) { return (& $fail 'NotFound' 'The package has no Description field.' $publisher $homepage $privacyUrl) }
         return (& $fail 'UnrecognizedOutput' 'winget output has no recognized fields.')
     }
 
     $description = ($descriptionLines -join "`n").Trim()
-    if ($description.Length -eq 0) { return (& $fail 'NotFound' 'The package Description is empty.' $publisher) }
+    if ($description.Length -eq 0) { return (& $fail 'NotFound' 'The package Description is empty.' $publisher $homepage $privacyUrl) }
 
     return [pscustomobject]@{
         Status      = 'Found'
         Description = $description
         PackageId   = $headerId
         Publisher   = $publisher
+        Homepage    = $homepage
+        PrivacyUrl  = $privacyUrl
         Message     = 'Description found.'
     }
 }
@@ -401,6 +434,7 @@ function Get-WinGetAppDescription {
             Found (bool), Description (string or null), Source ('msstore', 'winget', or null),
             PackageId (exact matched ID or null),
             Publisher (the package's Publisher field, or null; kept even when no description was found),
+            Homepage (Homepage, else Publisher Url, or null) and PrivacyUrl (Privacy Url, or null), kept the same way,
             Status (Found | NotFound | Unavailable | Timeout | UnrecognizedOutput),
             Message (short operator-readable text)
 
@@ -437,6 +471,8 @@ function Get-WinGetAppDescription {
 
         $attempts = @()
         $firstPublisher = $null
+        $firstHomepage = $null
+        $firstPrivacyUrl = $null
         foreach ($source in @('msstore', 'winget')) {
             $arguments = 'show --id {0} --exact --source {1} --disable-interactivity --accept-source-agreements' -f $WinGetId, $source
             Write-Verbose ("Get-WinGetAppDescription: {0} {1}" -f $exe, $arguments)
@@ -455,10 +491,16 @@ function Get-WinGetAppDescription {
 
             $parsed = ConvertFrom-PDWinGetShowOutput -Text $run.StdOut -ExpectedId $WinGetId
             if (($null -eq $firstPublisher) -and -not [string]::IsNullOrWhiteSpace([string]$parsed.Publisher)) { $firstPublisher = [string]$parsed.Publisher }
+            if (($null -eq $firstHomepage) -and -not [string]::IsNullOrWhiteSpace([string]$parsed.Homepage)) { $firstHomepage = [string]$parsed.Homepage }
+            if (($null -eq $firstPrivacyUrl) -and -not [string]::IsNullOrWhiteSpace([string]$parsed.PrivacyUrl)) { $firstPrivacyUrl = [string]$parsed.PrivacyUrl }
             if ($parsed.Status -eq 'Found') {
                 $foundPublisher = $parsed.Publisher
                 if ([string]::IsNullOrWhiteSpace([string]$foundPublisher)) { $foundPublisher = $firstPublisher }
-                return (New-PDWinGetDescriptionResult -Status 'Found' -Description $parsed.Description -Source $source -PackageId $parsed.PackageId -Publisher $foundPublisher -Message ("Description found in the {0} source." -f $source))
+                $foundHomepage = $parsed.Homepage
+                if ([string]::IsNullOrWhiteSpace([string]$foundHomepage)) { $foundHomepage = $firstHomepage }
+                $foundPrivacy = $parsed.PrivacyUrl
+                if ([string]::IsNullOrWhiteSpace([string]$foundPrivacy)) { $foundPrivacy = $firstPrivacyUrl }
+                return (New-PDWinGetDescriptionResult -Status 'Found' -Description $parsed.Description -Source $source -PackageId $parsed.PackageId -Publisher $foundPublisher -Homepage $foundHomepage -PrivacyUrl $foundPrivacy -Message ("Description found in the {0} source." -f $source))
             }
 
             $detail = $parsed.Message
@@ -474,7 +516,7 @@ function Get-WinGetAppDescription {
             if ($attempt.Status -ne 'NotFound') { $status = $attempt.Status; break }
         }
         $summary = ($attempts | ForEach-Object { '{0}: {1}' -f $_.Source, $_.Message }) -join ' '
-        return (New-PDWinGetDescriptionResult -Status $status -Message $summary -Publisher $firstPublisher)
+        return (New-PDWinGetDescriptionResult -Status $status -Message $summary -Publisher $firstPublisher -Homepage $firstHomepage -PrivacyUrl $firstPrivacyUrl)
     } catch {
         return (New-PDWinGetDescriptionResult -Status 'Unavailable' -Message ("Description lookup failed: {0}" -f (Get-PDWinGetShortText -Text $_.Exception.Message)))
     }
