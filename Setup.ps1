@@ -992,7 +992,8 @@ function Printer--InTune-Setup{
     Write-Log ""   
     Pause
     Write-Log ""  
-    Write-Log " 2 - Upload the .intunewin file located here: $PrinterIntuneWinPath"
+    Write-Log " 2 - Upload the .intunewin file located here:"
+    Write-LogBlock "`n$PrinterIntuneWinPath`n"
     Write-Log ""   
     Pause
     Write-Log ""  
@@ -1020,7 +1021,8 @@ Write-LogBlock "`n$PotentialPrinterInTuneName`n"
     
     Write-Log "     - Category: Printers (Create this category if you do not already have, it will take some time to show up: https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-add#create-and-edit-categories-for-apps)"
     if (Test-Path -LiteralPath $PrinterIconPath) {
-        Write-Log "     - LOGO: Select image and upload the standard printer icon: $PrinterIconPath"
+        Write-Log "     - LOGO: Select image and upload the standard printer icon:"
+        Write-LogBlock "`n$PrinterIconPath`n"
     } else {
         Write-Log "     - Logo: Optional - You could create something with Canva using your organization logo, but standardize it"
     }
@@ -1033,14 +1035,14 @@ Write-LogBlock "`n$PotentialPrinterInTuneName`n"
     Write-Host ""
     Write-Host "Install Command:"
     Write-Host ""
-    Get-Content -Path $MainInstallCommandTXT
+    Write-Host ((Get-Content -LiteralPath $MainInstallCommandTXT -Raw).TrimEnd())
     Write-Host ""
     Write-Log "     - Uninstall command:" 
     Write-Log "         - Use the uninstall command found inside this file: $UninstallCommandTXT"
     Write-Host ""
     Write-Host "Uninstall Command:"
     Write-Host ""
-    Get-Content -Path $UninstallCommandTXT
+    Write-Host ((Get-Content -LiteralPath $UninstallCommandTXT -Raw).TrimEnd())
     Write-Host ""
     Write-Log "     - Install time: 15 minutes"
     Write-Log "     - Allow available uninstall: Yes"
@@ -1973,7 +1975,8 @@ Function WindowsApp--InTune-Setup{
     Write-Log ""
     Pause   
     Write-Log ""
-    Write-Log " 2 - Upload the .intunewin file located here: $ApplicationIntuneWinPath"
+    Write-Log " 2 - Upload the .intunewin file located here:"
+    Write-LogBlock "`n$ApplicationIntuneWinPath`n"
     Write-Log ""
     Pause   
     Write-Log "" 
@@ -2023,15 +2026,18 @@ Function WindowsApp--InTune-Setup{
     if ($AppLinks.InformationUrl) { Write-Log "     - INFORMATION URL:"; Write-LogBlock "`n$($AppLinks.InformationUrl)`n" }
     if ($AppLinks.PrivacyUrl)     { Write-Log "     - PRIVACY URL:";     Write-LogBlock "`n$($AppLinks.PrivacyUrl)`n" }
     if ($AppIconFile) {
-        Write-Log "     - LOGO: Select image and upload: $AppIconFile"
+        Write-Log "     - LOGO: Select image and upload:"
+        Write-LogBlock "`n$AppIconFile`n"
     } elseif ($AppIconUrl) {
         # Download it for the operator, into Setup's Temp folder (beside the repo, never inside it).
         $GuidedIcon = Save-IntuneIconFromUrl -Url $AppIconUrl -Directory "$WorkingDirectory\Temp\Intune_Icons"
         if ($GuidedIcon.Path) {
-            Write-Log "     - LOGO: Select image and upload (downloaded from the catalog's IconUrl): $($GuidedIcon.Path)"
+            Write-Log "     - LOGO: Select image and upload (downloaded from the catalog's IconUrl):"
+            Write-LogBlock "`n$($GuidedIcon.Path)`n"
         } else {
             Write-Log "     $($GuidedIcon.Warning)" "WARNING"
-            Write-Log "     - LOGO: Download this image yourself and upload it: $AppIconUrl"
+            Write-Log "     - LOGO: Download this image yourself and upload it:"
+            Write-LogBlock "`n$AppIconUrl`n"
         }
     } else {
         Write-Log "     - LOGO: Optional - You could create something with Canva using your organization logo, but standardize it"
@@ -2043,8 +2049,20 @@ Function WindowsApp--InTune-Setup{
     Write-Log " 4 - PROGRAM:"
     Write-Log "     - Install command:"
     Write-Log "         - Use the install command found inside this file: $MainInstallCommandTXT"
+    # Shown on screen only, like the printer walkthrough: never logged, because the command can
+    # carry the repository token.
+    Write-Host ""
+    Write-Host "Install Command:"
+    Write-Host ""
+    Write-Host ((Get-Content -LiteralPath $MainInstallCommandTXT -Raw).TrimEnd())
+    Write-Host ""
     Write-Log "     - Uninstall command:"
     Write-Log "         - Use the uninstall command found inside this file: $UninstallCommandTXT"
+    Write-Host ""
+    Write-Host "Uninstall Command:"
+    Write-Host ""
+    Write-Host ((Get-Content -LiteralPath $UninstallCommandTXT -Raw).TrimEnd())
+    Write-Host ""
     Write-Log "     - Install time: 15 minutes"
     Write-Log "     - Allow available uninstall: No"
     Write-Log "     - Install behavior: System"
@@ -5527,6 +5545,12 @@ Function Invoke-InTuneAutoUpload {
         Write-Log ""
 
         $Result = Invoke-PDIntuneUpload @Common -RequiredGroups $ResolvedRequired -AvailableGroups $ResolvedAvailable -AllowDuplicateName:$AllowDuplicate
+
+        # The downloaded icon has done its job; remove it now rather than after the final prompt,
+        # so closing the window at that prompt cannot leave it behind (Finally stays as a backstop).
+        if ($DownloadedIconPath -and (Test-Path -LiteralPath $DownloadedIconPath)) {
+            Remove-Item -LiteralPath (Split-Path -Parent $DownloadedIconPath) -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
         if ($null -ne $Result -and $Result.Success) {
             # Step 12.
