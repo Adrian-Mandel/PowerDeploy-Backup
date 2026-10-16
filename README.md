@@ -167,7 +167,7 @@ This is the difference between maintaining *dozens of brittle, individually-buil
 
 Instead of copying the wizard's output into the Intune portal by hand, Setup can create the Win32 app for you through Microsoft Graph: upload the package, set the description, notes, category and detection script, assign it, and then read everything back to confirm Intune stored exactly what was sent. It is **opt-in and runs on an admin workstation only** — managed computers are not involved and never receive the credential. Without it, the guided walkthrough works exactly as before.
 
-**One-time setup** — run `Setup.ps1` → `Graph_API_Upload--InTune-Setup`:
+**One-time setup** — run `Setup.ps1` → `InTuneAPI--Setup-and-Manage`:
 
 | Option | Use it to |
 |---|---|
@@ -328,7 +328,7 @@ The same deployment serves two execution paths from one definition:
 
 - [`Setup.ps1`](Setup.ps1) — the technician's main entry point (guided wizards + local install/uninstall + config remediation generation). Its menu is built when it starts, so the numbers can change; the functions are:
   - `Adobe-Apps-FullCleanup--Uninstall-Local` — runs the bundled Adobe full-cleanup uninstaller on this machine.
-  - `Graph_API_Upload--InTune-Setup` — sets up, tests, rotates or removes the optional Intune upload credential, and shows the Multi-Admin Approval steps (see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
+  - `InTuneAPI--Setup-and-Manage` — sets up, tests, rotates or removes the optional Intune upload credential, and shows the Multi-Admin Approval steps (see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
   - `Printer--Convert-Vendor-DriverPack` — turns a manufacturer's driver pack into a PowerDeploy driver zip (see [Migrating from a print server](#migrating-from-a-print-server)).
   - `Printer--InTune-Setup` — packages a printer from `PrinterData.json` for Intune, then walks you through creating it or creates it automatically.
   - `Printer--Install-Local` / `Printer--Uninstall-Local` — installs or removes a printer on this machine.
@@ -475,7 +475,7 @@ Each entry is timestamped and tagged with a severity level (`INFO`, `WARNING`, `
 2. **Stand up Azure Blob Storage**: containers for application payloads and printer drivers, plus your private `ApplicationData.json` / `PrinterData.json`.
 3. **Generate and deploy the config remediation** from `Setup.ps1` (`Registry_Remediations--InTune-Setup`) to populate `HKLM\SOFTWARE\PowerDeploy` on your fleet. The wizard only asks for four values: your private repo URL, the repo token, and the printer and application container SAS keys. The other three are fixed defaults in the `RegRemediationScript` function of [`Other_Tools/Generate_Install-Command.ps1`](Other_Tools/Generate_Install-Command.ps1): `StorageAccountName` = `powerdeploy`, `PrinterDataJSONpath` = `printers/PrinterData.json`, and `ApplicationDataJSONpath` = `applications/ApplicationData.json`. **If your storage account name, container names, or manifest paths are different, edit those defaults (in your private fork) before generating the scripts.**
 4. **Run `Setup.ps1` as an administrator** and follow a wizard to add an app or printer: it can test the install locally, then produce the `.intunewin`, the install/uninstall commands, and the detection script. (`Custom_Script` apps can't be packaged by the wizard yet — see [Packaging and managing your assets](#packaging-and-managing-your-assets).)
-5. **Create the Win32 app in Intune** using those generated artifacts, and assign it — by hand from the guided walkthrough, or let Setup do it (optional; set up once with `Graph_API_Upload--InTune-Setup`, see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
+5. **Create the Win32 app in Intune** using those generated artifacts, and assign it — by hand from the guided walkthrough, or let Setup do it (optional; set up once with `InTuneAPI--Setup-and-Manage`, see [Publishing to Intune automatically](#publishing-to-intune-automatically-optional)).
 
 ---
 

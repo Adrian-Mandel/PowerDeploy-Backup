@@ -1846,15 +1846,8 @@ Function WindowsApp--InTune-Setup{
 
 
     # Get the potential name sorted out
-    if($DisplayName -eq "" -or $null -eq $DisplayName){
-
-        $PotentialAppInTuneName = "APP: $ApplicationName"
-
-    } else {
-
-        $PotentialAppInTuneName = "APP: $DisplayName"
-
-    }
+    # Always based on ApplicationName (the admin-chosen label). DisplayName is the vendor's registry string used for detection/uninstall matching, so it is never used here.
+    $PotentialAppInTuneName = "APP: $ApplicationName"
 
     if ($Global:DeployMode -ne "Production"){
 
@@ -4180,7 +4173,7 @@ Function Adobe-Apps-FullCleanup--Uninstall-Local{
 # ---------------------------------------------------------------------------
 # Intune upload: credential provisioning menu (spec 7.2)
 #
-# Only Graph_API_Upload--InTune-Setup has '--' in its name, because the reflection menu at the end
+# Only InTuneAPI--Setup-and-Manage has '--' in its name, because the reflection menu at the end
 # of this script lists every function whose name contains '--'. Everything else here is a helper it
 # calls. None of these functions prompt for metadata or publish anything: they create, test, rotate
 # and remove ONE thing, the credential the uploader uses. Publishing stays with the upload entry
@@ -5227,7 +5220,7 @@ Function Invoke-InTuneAutoUpload {
         } Catch {
             Show-GraphUploadError -Failure $_
             Write-Log ""
-            Write-Log "The upload credential is set up from the main menu with Graph_API_Upload--InTune-Setup." 'WARNING'
+            Write-Log "The upload credential is set up from the main menu with InTuneAPI--Setup-and-Manage." 'WARNING'
             Write-Log "Continuing with the guided manual setup." 'WARNING'
             Pause
             return $false
@@ -5382,7 +5375,7 @@ Function Invoke-InTuneAutoUpload {
     }
 }
 
-Function Graph_API_Upload--InTune-Setup {
+Function InTuneAPI--Setup-and-Manage {
 
     <#
         .SYNOPSIS

@@ -373,7 +373,7 @@ Add-TestCase 'M2-07' 'Test-PDGraphUrlIsGraph accepts only https on the Graph hos
 
 Add-TestCase 'C01a' 'Missing credential produces an actionable message naming the menu' {
     $missing = Join-Path $tempRoot 'nope\credential.clixml'
-    Assert-Throws -Body { Get-PDGraphCredential -Path $missing } -MessagePattern '*Graph_API_Upload--InTune-Setup*' 'points at the provisioning menu'
+    Assert-Throws -Body { Get-PDGraphCredential -Path $missing } -MessagePattern '*InTuneAPI--Setup-and-Manage*' 'points at the provisioning menu'
 }
 
 Add-TestCase 'C01b' 'Save then load round-trips a credential without exposing the secret' {
@@ -2124,7 +2124,7 @@ Add-TestCase 'M3-04' 'A missing or expired credential fails before any Graph cal
 
     Assert-Equal $false $result.Success 'no credential means no success'
     Assert-Equal 'Credential' $result.Stage 'stage names the credential step'
-    Assert-Like '*Graph_API_Upload--InTune-Setup*' $result.Message 'points at the menu that fixes it'
+    Assert-Like '*InTuneAPI--Setup-and-Manage*' $result.Message 'points at the menu that fixes it'
     Assert-Equal 0 @($script:MockGraphCalls).Count 'a missing credential never reaches the network'
 
     # An expired secret is refused, not refreshed silently.
@@ -3869,7 +3869,7 @@ Add-TestCase 'M5-01' 'Setup.ps1 loads the feature at script scope and still has 
 }
 
 Add-TestCase 'M5-02' 'the provisioning menu offers exactly the spec 7.2 options and never exits' {
-    $menu = Get-PDM5SetupFunction -Name 'Graph_API_Upload--InTune-Setup'
+    $menu = Get-PDM5SetupFunction -Name 'InTuneAPI--Setup-and-Manage'
     $body = [string]$menu.Extent.Text
     $shown = [string](Get-PDM5SetupFunction -Name 'Show-GraphUploadMenu').Extent.Text
 
@@ -3919,7 +3919,7 @@ Add-TestCase 'M5-02' 'the provisioning menu offers exactly the spec 7.2 options 
         Assert-True (@($stops).Count -eq 0) "$helper must never call exit"
     }
 
-    Assert-True (@($names | Where-Object { $_ -like 'Graph_API_Upload*' }).Count -eq 1) 'the provisioning menu is reflected exactly once'
+    Assert-True (@($names | Where-Object { $_ -like 'InTuneAPI--*' }).Count -eq 1) 'the provisioning menu is reflected exactly once'
 }
 
 Add-TestCase 'M5-03' 'the provisioning menu calls the library and never the network itself' {

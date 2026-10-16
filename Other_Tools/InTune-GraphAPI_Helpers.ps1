@@ -836,7 +836,7 @@ function Get-PDGraphCredential {
     $resolved = Get-PDGraphCredentialPath -Path $Path
 
     if (-not [System.IO.File]::Exists($resolved)) {
-        Stop-PDGraphError -Message ("No upload credential is stored for this Windows account. Run the Setup menu function Graph_API_Upload--InTune-Setup to create or enter one. Expected: $resolved") -Stage 'Credential'
+        Stop-PDGraphError -Message ("No upload credential is stored for this Windows account. Run the Setup menu function InTuneAPI--Setup-and-Manage to create or enter one. Expected: $resolved") -Stage 'Credential'
     }
 
     $raw = $null
@@ -845,23 +845,23 @@ function Get-PDGraphCredential {
     } catch {
         $reason = ([string]$_.Exception.Message)
         if ($reason -match '(?i)decrypt|cryptograph|key|padding|mac|bad data|not valid|rmtp|protected') {
-            Stop-PDGraphError -Message 'The stored credential could not be decrypted by this Windows account. It was saved by a different user or machine; re-enter it through Graph_API_Upload--InTune-Setup.' -Stage 'Credential'
+            Stop-PDGraphError -Message 'The stored credential could not be decrypted by this Windows account. It was saved by a different user or machine; re-enter it through InTuneAPI--Setup-and-Manage.' -Stage 'Credential'
         }
-        Stop-PDGraphError -Message "The stored credential file could not be read and may be corrupt. Re-enter it through Graph_API_Upload--InTune-Setup. ($reason)" -Stage 'Credential'
+        Stop-PDGraphError -Message "The stored credential file could not be read and may be corrupt. Re-enter it through InTuneAPI--Setup-and-Manage. ($reason)" -Stage 'Credential'
     }
 
     $problem = $null
     $credential = ConvertFrom-PDGraphCredentialFile -Raw $raw -Problem ([ref]$problem)
 
     if ($null -eq $credential) {
-        Stop-PDGraphError -Message "The stored credential file is not usable: $problem Re-enter it through Graph_API_Upload--InTune-Setup." -Stage 'Credential'
+        Stop-PDGraphError -Message "The stored credential file is not usable: $problem Re-enter it through InTuneAPI--Setup-and-Manage." -Stage 'Credential'
     }
 
     $warnings = @()
 
     if ($credential.SecretExpiresOn -le [System.DateTimeOffset]::UtcNow) {
         $shown = $credential.SecretExpiresOn.ToString('yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
-        Stop-PDGraphError -Message "The stored application secret expired on $shown. Rotate it with Graph_API_Upload--InTune-Setup." -Stage 'Credential'
+        Stop-PDGraphError -Message "The stored application secret expired on $shown. Rotate it with InTuneAPI--Setup-and-Manage." -Stage 'Credential'
     }
 
     if ($credential.DaysUntilExpiry -le [int]$script:PDGraph.NearExpiryWarningDays) {
