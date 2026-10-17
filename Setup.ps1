@@ -2236,7 +2236,7 @@ Function Printer--Uninstall-Local{
     # Exit 1
 
     # List the installed printers
-    $PrinterList = Get-Printer | Select-Object -ExpandProperty Name
+    $PrinterList = Get-Printer | Select-Object -ExpandProperty Name | Sort-Object
     $Counter = 1
     $HashTable = @{}
 
@@ -3125,7 +3125,7 @@ function Select-ApplicationFromJSON {
 
 
 
-    $list1 = $PublicJSONdata.applications.ApplicationName
+    $list1 = $PublicJSONdata.applications.ApplicationName | Sort-Object
 
 
     # if ($list -contains $AppNameToFind) {
@@ -3201,7 +3201,7 @@ function Select-ApplicationFromJSON {
             # Write-Log "Applications count: $($PrivateJSONdata.Applications.Count)" "INFO2"
             # Write-Log "First app name: $($PrivateJSONdata.Applications[0].ApplicationName)" "INFO2"
 
-            $list2 = $PrivateJSONdata.Applications.ApplicationName 
+            $list2 = $PrivateJSONdata.Applications.ApplicationName | Sort-Object
 
             # Write-Log "Application name count: $($list2.Count)" "INFO2"
             # Write-Log "First app name: $($list2[0])" "INFO2"
@@ -3563,7 +3563,7 @@ Function Select-PrinterFromJSON {
         # Can comment out
         Write-Log "Here are all the printers we found from the JSON:"
         Write-Log ""
-        $list = $jsonData.printers.PrinterName 
+        $list = $jsonData.printers.PrinterName | Sort-Object
  
 
         $Counter = 1
