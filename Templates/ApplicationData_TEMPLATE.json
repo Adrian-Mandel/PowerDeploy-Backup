@@ -52,9 +52,17 @@
   },
   {
     "ApplicationName": "7-Zip",
-    "InstallMethod": "WinGet",
+    "InstallMethod": "URL_Download",
     "WinGetID": "7zip.7zip",
-    "UninstallType": "Remove-App-WinGet"
+    "DownloadURL": "https://github.com/ip7z/7zip/releases/download/26.04/7z2604-x64.msi",
+    "DownloadType": "FILE",
+    "InstallType": "MSI",
+    "DisplayName": "7-Zip",
+    "DetectMethod": "MSI_Registry",
+    "UninstallType": "Remove-App-WinGet",
+    "AppDescription": "A file archiver with a high compression ratio.",
+    "Publisher": "Igor Pavlov",
+    "InformationUrl": "https://7-zip.org/download.html"
   },
   {
     "ApplicationName": ".NET_3.5",
